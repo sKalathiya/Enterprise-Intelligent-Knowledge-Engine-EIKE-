@@ -53,10 +53,10 @@ async def log_requests(request: Request, call_next):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[os.getenv("AI_WORKER_ALLOWED_ORIGINS") or "*"],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["*", "X-Internal-Api-Key"],
 )
 
 API_KEY_HEADER = "X-Internal-Api-Key"
