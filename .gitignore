@@ -1,0 +1,22 @@
+# Operational Dependencies & Runtime Libraries
+node_modules/
+dist/
+build/
+.npm
+.eslintcache
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# Sensitive Variables & Environment Configs
+.env
+.env.local
+.env.production
+
+# Docker Local States & OS Artifacts
+.DS_Store
+Thumbs.db
+.docker/
