@@ -42,7 +42,7 @@ async function bootstrap() {
   // Cleanly flushes the system request queue when downstream networks lag
   app.useGlobalInterceptors(new TimeoutInterceptor());
 
-  app.setGlobalPrefix('api'); 
+  app.setGlobalPrefix('api/v1'); 
   const config = new DocumentBuilder()
     .setTitle('Gateway Service')
     .setDescription('Gateway Service API handling distributed AI operations, file token lines, and queue workers.')
@@ -50,7 +50,7 @@ async function bootstrap() {
     .addTag('Core Engine')
     .build();
   const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document);
+  SwaggerModule.setup('api/v1/docs', app, document);
   
   await app.listen(process.env.GATEWAY_SERVICE_PORT ?? 3000);
   console.log(`Gateway Service is running on port ${process.env.GATEWAY_SERVICE_PORT ?? 3000}`);

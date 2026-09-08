@@ -3,7 +3,7 @@ name: Enterprise-Intelligent-Knowledge-Engine
 networks:
   eike_network:
     driver: bridge
-    internal: true
+    # internal: true
   public_network:
     driver: bridge
 
@@ -58,3 +58,62 @@ services:
           cpus: "0.1"
           memory: 64M
   
+  # gateway-service:
+  #   build:
+  #     context: ./gateway-service
+  #     dockerfile: Dockerfile
+  #   container_name: eike_gateway_service
+  #   ports:
+  #     - "${GATEWAY_SERVICE_PORT}:3000"
+  #   networks:
+  #     - eike_network
+  #     - public_network
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - postgres_db
+  #     - redis_cache
+  #   environment:
+  #     - POSTGRES_USER=${POSTGRES_USER}
+  #     - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+  #     - POSTGRES_DB=${POSTGRES_DB}
+  #     - POSTGRES_PORT=${POSTGRES_PORT}
+  #     - REDIS_HOST=${REDIS_HOST}
+  #     - REDIS_PORT=${REDIS_PORT}
+  #     - GATEWAY_SERVICE_PORT=${GATEWAY_SERVICE_PORT}
+  #     - GATEWAY_SERVICE_NODE_ENV=${GATEWAY_SERVICE_NODE_ENV}
+  #     - GATEWAY_SERVICE_CORS_ORIGIN=${GATEWAY_SERVICE_CORS_ORIGIN}
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: "1"
+  #         memory: 512M
+  #       reservations:
+  #         cpus: "0.25"
+  #         memory: 256M
+       
+
+  # ai-worker:
+  #   build:
+  #     context: ./ai-worker
+  #     dockerfile: Dockerfile
+  #   container_name: eike_ai_worker
+  #   ports:
+  #     - "${AI_WORKER_PORT}:8000"
+  #   networks:
+  #     - eike_network
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - redis_cache
+  #   environment:
+  #     - API_KEY=${API_KEY}
+  #     - AI_WORKER_PORT=${AI_WORKER_PORT}
+  #     - AI_WORKER_NODE_ENV=${AI_WORKER_NODE_ENV}
+  #     - AI_WORKER_CORS_ORIGIN=${AI_WORKER_CORS_ORIGIN}
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: "1.5"
+  #         memory: 1G
+  #       reservations:
+  #         cpus: "0.50"
+  #         memory: 512M

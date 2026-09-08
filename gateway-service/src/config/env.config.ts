@@ -9,4 +9,7 @@ export const envSchema = Joi.object({
   POSTGRES_PASSWORD: Joi.string().required(),
   POSTGRES_DB: Joi.string().required(),
   REDIS_PORT: Joi.number().default(6379),
+  REDIS_HOST: Joi.string().required(),
+  API_KEY: Joi.string().required(),
+  GATEWAY_SERVICE_CORS_ORIGIN: Joi.string().default('*'),
 });

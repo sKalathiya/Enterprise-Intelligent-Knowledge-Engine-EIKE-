@@ -1,5 +1,6 @@
 import os
 import time
+import uuid
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request, status
@@ -10,6 +11,7 @@ from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
+import uvicorn
 
 limiter = Limiter(key_func=get_remote_address)
 
@@ -25,6 +27,7 @@ app = FastAPI(
     title="AI Worker", 
     description="AI Worker is a service that processes AI requests.", 
     version="1.0.0",
+    prefix="/api/v1/ai",
 )
 
 
@@ -68,8 +71,10 @@ async def get_api_key(api_key_header: str = Depends(api_key_header)):
     return api_key_header
 
 class Document(BaseModel):
-    document_id: str = Field(..., description="The ID of the document to process"),
-    content: str = Field(..., description="The content   of the document to process"),
+    document_id: uuid.UUID = Field(..., description="The ID of the document to process")
+    content: str = Field(..., description="The content   of the document to process")
+
+app = FastAPI(dependencies=[Depends(get_api_key)])
 
 
 @app.get("/health",status_code=status.HTTP_200_OK)
@@ -77,7 +82,7 @@ async def health():
     return {"status": "ok"}
 
 
-@app.post("/ai/process", status_code=status.HTTP_200_OK, dependencies=[Depends(get_api_key)])
+@app.post("/process", status_code=status.HTTP_200_OK)
 @limiter.limit("60/minute")
 async def ingest_document_payload(request: Request, payload: Document):
     """Secured entry point handling heavy automated ingestion tasks."""
@@ -87,3 +92,6 @@ async def ingest_document_payload(request: Request, payload: Document):
         "message": f"Payload for secure job {payload.document_id} successfully validated, authorized, and queued.",
         "content_length": len(payload.content)
     }
+
+if __name__ == "__main__":
+    uvicorn.run("main:app", host=os.getenv("AI_WORKER_HOST") or "0.0.0.0", port=int(os.getenv("AI_WORKER_PORT")) or 8000, reload=True)
