@@ -12,4 +12,5 @@ export const envSchema = Joi.object({
   REDIS_HOST: Joi.string().required(),
   API_KEY: Joi.string().required(),
   GATEWAY_SERVICE_CORS_ORIGIN: Joi.string().default('*'),
+  JWT_SECRET: Joi.string().required(),
 });

@@ -9,8 +9,10 @@ import { envSchema } from './config/env.config.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { User } from './users/entities/user.entity.js';
-import { Document } from './documents/entities/document.entity.js';
+import { User } from './modules/users/entities/user.entity.js';
+import { Document } from './modules/documents/entities/document.entity.js';
+import { AuthService } from './modules/auth/auth.service.js';
+import { AuthModule } from './modules/auth/auth.module.js';
 @Module({
   imports: [
     TypeOrmModule.forRootAsync({
@@ -28,6 +30,7 @@ import { Document } from './documents/entities/document.entity.js';
         logging:['error','query'],
       }),
     }),
+    AuthModule,
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '../.env',
@@ -44,6 +47,7 @@ import { Document } from './documents/entities/document.entity.js';
       appSecret: 'YOUR_APP_SECRET',
       serviceId: 'gateway-service',
     }),
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],
