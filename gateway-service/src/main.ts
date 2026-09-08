@@ -54,6 +54,6 @@ async function bootstrap() {
   
   await app.listen(process.env.GATEWAY_SERVICE_PORT ?? 3000);
   console.log(`Gateway Service is running on port ${process.env.GATEWAY_SERVICE_PORT ?? 3000}`);
-  console.log(`Gateway Service API documentation is available at http://localhost:${process.env.GATEWAY_SERVICE_PORT ?? 3000}/api/docs`);
+  console.log(`Gateway Service API documentation is available at http://localhost:${process.env.GATEWAY_SERVICE_PORT ?? 3000}/api/v1/docs`);
 }
 await bootstrap();
