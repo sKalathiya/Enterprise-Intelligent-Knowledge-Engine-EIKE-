@@ -9,10 +9,14 @@ import { envSchema } from './config/env.config.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { User } from './modules/users/entities/user.entity.js';
-import { Document } from './modules/documents/entities/document.entity.js';
-import { AuthService } from './modules/auth/auth.service.js';
+import { User } from './modules/user/entities/user.entity.js';
+import { Document } from './modules/document/entities/document.entity.js';
 import { AuthModule } from './modules/auth/auth.module.js';
+import { UserModule } from './modules/user/user.module.js';
+import { DocumentModule } from './modules/document/document.module.js';
+import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.gaurd.js';
+import { APP_GUARD } from '@nestjs/core';
+
 @Module({
   imports: [
     TypeOrmModule.forRootAsync({
@@ -30,7 +34,7 @@ import { AuthModule } from './modules/auth/auth.module.js';
         logging:['error','query'],
       }),
     }),
-    AuthModule,
+
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '../.env',
@@ -48,8 +52,15 @@ import { AuthModule } from './modules/auth/auth.module.js';
       serviceId: 'gateway-service',
     }),
     AuthModule,
+    DocumentModule,
+    UserModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService,
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    }
+  ],
 })
 export class AppModule {}

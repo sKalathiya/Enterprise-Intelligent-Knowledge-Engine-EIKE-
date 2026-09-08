@@ -48,6 +48,7 @@ async function bootstrap() {
     .setDescription('Gateway Service API handling distributed AI operations, file token lines, and queue workers.')
     .setVersion('1.0')
     .addTag('Core Engine')
+    .addBearerAuth()
     .build();
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/v1/docs', app, document);
