@@ -3,7 +3,7 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.security import APIKeyHeader
@@ -12,6 +12,8 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 import uvicorn
+from text_processor import TextProcessorService
+from pdf_parser import PdfParserService
 
 limiter = Limiter(key_func=get_remote_address)
 
@@ -22,12 +24,24 @@ load_dotenv("../.env")
 async def lifespan(app: FastAPI):
     yield
 
+
+
+API_KEY_HEADER = "X-Internal-Api-Key"
+api_key_header = APIKeyHeader(name=API_KEY_HEADER, auto_error=False)
+
+async def get_api_key(api_key_header: str = Depends(api_key_header)):
+    if api_key_header != os.getenv("API_KEY"):
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    return api_key_header
+
+
 app = FastAPI(
-    lifespan=lifespan, 
+    lifespan=lifespan,
     title="AI Worker", 
     description="AI Worker is a service that processes AI requests.", 
     version="1.0.0",
     prefix="/api/v1/ai",
+    dependencies=[Depends(get_api_key)]
 )
 
 
@@ -62,20 +76,17 @@ app.add_middleware(
     allow_headers=["*", "X-Internal-Api-Key"],
 )
 
-API_KEY_HEADER = "X-Internal-Api-Key"
-api_key_header = APIKeyHeader(name=API_KEY_HEADER, auto_error=False)
 
-async def get_api_key(api_key_header: str = Depends(api_key_header)):
-    if api_key_header != os.getenv("API_KEY"):
-        raise HTTPException(status_code=401, detail="Invalid API key")
-    return api_key_header
 
 class Document(BaseModel):
-    document_id: uuid.UUID = Field(..., description="The ID of the document to process")
-    content: str = Field(..., description="The content   of the document to process")
+   # document_id: uuid.UUID = Field(..., description="The ID of the document to process")
+    path: str = Field(..., description="The path of the document to process")
 
-app = FastAPI(dependencies=[Depends(get_api_key)])
 
+
+ 
+text_processor = TextProcessorService()
+pdf_parser = PdfParserService()
 
 @app.get("/health",status_code=status.HTTP_200_OK)
 async def health():
@@ -85,12 +96,18 @@ async def health():
 @app.post("/process", status_code=status.HTTP_200_OK)
 @limiter.limit("60/minute")
 async def ingest_document_payload(request: Request, payload: Document):
-    """Secured entry point handling heavy automated ingestion tasks."""
-    print(f"🔒 Secure execution path triggered for Job ID: {payload.document_id}")
+    """Parse a PDF already on disk, then chunk the extracted markdown."""
+    try:
+        content = await pdf_parser.parse_pdf(payload.path)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    chunks = text_processor.split_text(content)
+    print(f"Chunks: {len(chunks)}")
     return {
-        "status": "processing",
-        "message": f"Payload for secure job {payload.document_id} successfully validated, authorized, and queued.",
-        "content_length": len(payload.content)
+        "status": "ok",
+        "markdown_preview": content[:2000],
+        "chunks": len(chunks),
+        "chunk_sample": chunks[0] if chunks else None,
     }
 
 if __name__ == "__main__":
