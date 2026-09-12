@@ -9,6 +9,6 @@ class DocumentChunk(Base):
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))        # UUID for the chunk
     document_id = Column(String(36), nullable=False)
     content = Column(Text, nullable=False)
-    embedding = Column(Vector(1536), nullable=True) # 1536 dimensions for text-embedding-ada-002
+    embedding = Column(Vector(768), nullable=True) # 768 dimensions for text-embedding-3-small
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now)
