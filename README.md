@@ -23,7 +23,7 @@ Client (Swagger / HTTP)
 | Redis + BullMQ            |
 +---------------------------+
         |
-        | worker HTTP POST /process
+        | worker HTTP POST /api/v1/ai/process
         | X-Internal-Api-Key
         v
 +---------------------------+          +---------------------------+
@@ -50,13 +50,14 @@ Both processes read the same file via `SHARED_UPLOAD` (absolute path in local de
 
 **AI worker**
 
-- `GET /health`, `POST /process` (API key required)
+- Global route prefix `/api/v1/ai` via `APIRouter` in `main.py`
+- `GET /api/v1/ai/health`, `POST /api/v1/ai/process` (API key required)
 - LlamaParse → markdown
 - Recursive character splitting (LangChain)
 - Gemini `models/gemini-embedding-001` with `output_dimensionality=768`
 - Batched embed calls (50 chunks)
 - Persist rows in `document_chunks` (content + vector)
-- Rate limit on `/process` (slowapi)
+- Rate limit on `/api/v1/ai/process` (slowapi)
 - `python -m core.init_vector_db` enables `vector`, creates `document_chunks`, and an HNSW cosine index
 
 **Infrastructure**
@@ -136,7 +137,7 @@ AI_WORKER_ALLOWED_ORIGINS=*
 LLAMA_PARSE_API_KEY=llx-...
 GEMINI_API_KEY=AIza...
 
-DOCUMENT_SERVICE_URL=http://localhost:8000/process
+DOCUMENT_SERVICE_URL=http://localhost:8000/api/v1/ai/process
 GATEWAY_SERVICE_PORT=3000
 JWT_SECRET=a_long_random_string
 GATEWAY_SERVICE_CORS_ORIGIN=*
@@ -173,7 +174,8 @@ cd ai-worker
 python main.py
 ```
 
-Docs: [http://localhost:8000/docs](http://localhost:8000/docs)  
+OpenAPI UI: [http://localhost:8000/docs](http://localhost:8000/docs) (still at `/docs`; the routes themselves are prefixed).  
+Health: [http://localhost:8000/api/v1/ai/health](http://localhost:8000/api/v1/ai/health)  
 Send header `X-Internal-Api-Key` with the same value as `API_KEY`.
 
 **4. Gateway**
@@ -192,7 +194,7 @@ Use **Authorize** and paste the JWT from login (no `Bearer ` prefix).
 1. `POST /api/v1/auth/register` then `POST /api/v1/auth/login`
 2. `POST /api/v1/document/upload` (multipart field `file`)
 3. Gateway writes the file under `SHARED_UPLOAD`, saves a `documents` row (`pending`), and enqueues the job
-4. The processor sets `processing` and `POST`s `{ documentId, path }` to the worker
+4. The processor sets `processing` and `POST`s `{ documentId, path }` to `DOCUMENT_SERVICE_URL` (`/api/v1/ai/process`)
 5. Worker parses, chunks, embeds, inserts `document_chunks`
 6. Processor sets `completed` or `failed` (`errorMessage` on failure)
 7. `GET /api/v1/document/list` returns the user’s documents and statuses
@@ -207,8 +209,8 @@ Job options: `jobId` = document id, 3 attempts, exponential backoff.
 | Gateway | POST | `/api/v1/auth/login` | Public |
 | Gateway | POST | `/api/v1/document/upload` | JWT |
 | Gateway | GET | `/api/v1/document/list` | JWT |
-| Worker | GET | `/health` | API key |
-| Worker | POST | `/process` | API key |
+| Worker | GET | `/api/v1/ai/health` | API key |
+| Worker | POST | `/api/v1/ai/process` | API key |
 
 ## Tests
 
@@ -223,4 +225,5 @@ The worker does not have a pytest suite yet.
 - Compose currently starts **only** Postgres and Redis. App containers are defined but commented out.
 - Nest `synchronize: true` creates `users` and `documents`. The worker owns `document_chunks` via `init_vector_db`.
 - Embedding size must stay **768** to match `Vector(768)` and `output_dimensionality=768`.
-- FastAPI `prefix="/api/v1/ai"` on `FastAPI()` is ignored (that option belongs on `APIRouter`). Worker routes stay at `/health` and `/process`.
+- Worker HTTP routes use `APIRouter(prefix="/api/v1/ai")`. FastAPI has no Nest-style `setGlobalPrefix` on the app. OpenAPI stays at `/docs`.
+- `uploads/` is gitignored. Do not commit uploaded PDFs.

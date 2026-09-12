@@ -4,7 +4,7 @@ import uuid
 import asyncio
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, FastAPI, File, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.security import APIKeyHeader
@@ -45,7 +45,6 @@ app = FastAPI(
     title="AI Worker", 
     description="AI Worker is a service that processes AI requests.", 
     version="1.0.0",
-    prefix="/api/v1/ai",
     dependencies=[Depends(get_api_key)]
 )
 
@@ -81,6 +80,7 @@ app.add_middleware(
     allow_headers=["*", "X-Internal-Api-Key"],
 )
 
+router = APIRouter(prefix="/api/v1/ai")
 
 
 class Document(BaseModel):
@@ -94,12 +94,12 @@ text_processor = TextProcessorService()
 pdf_parser = PdfParserService()
 embedding_service = EmbeddingService()
 
-@app.get("/health",status_code=status.HTTP_200_OK)
+@router.get("/health", status_code=status.HTTP_200_OK)
 async def health():
     return {"status": "ok"}
 
 
-@app.post("/process", status_code=status.HTTP_200_OK)
+@router.post("/process", status_code=status.HTTP_200_OK)
 @limiter.limit("60/minute")
 async def ingest_document_payload(request: Request, job: Document, db: Session = Depends(get_db)):
     """Parse a PDF already on disk, then chunk the extracted markdown."""
@@ -126,7 +126,9 @@ async def ingest_document_payload(request: Request, job: Document, db: Session =
         db.rollback()
         print(f"Error parsing PDF: {exc}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
-   
+
+
+app.include_router(router)
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host=os.getenv("AI_WORKER_HOST") or "0.0.0.0", port=int(os.getenv("AI_WORKER_PORT")) or 8000, reload=True)
