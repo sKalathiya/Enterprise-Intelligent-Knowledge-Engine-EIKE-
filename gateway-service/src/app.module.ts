@@ -6,6 +6,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { envSchema } from './config/env.config.js';
 
 // import { ThrottlerModule } from '@nestjs/throttler';
+import { BullModule } from '@nestjs/bullmq';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -32,6 +33,17 @@ import { APP_GUARD } from '@nestjs/core';
         entities: [User, Document],
         synchronize: true,
         logging:['error','query'],
+      }),
+    }),
+
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        connection: {
+          host: configService.get('REDIS_HOST'),
+          port: configService.get('REDIS_PORT'),
+        },
       }),
     }),
 

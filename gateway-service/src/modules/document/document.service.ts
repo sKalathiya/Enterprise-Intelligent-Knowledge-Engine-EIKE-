@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Document, DocumentStatus } from './entities/document.entity.js';
 import { User } from '../user/entities/user.entity.js';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 
 @Injectable()
 export class DocumentService {
@@ -11,7 +13,9 @@ export class DocumentService {
     @InjectRepository(Document)
     private readonly documentRepository: Repository<Document>,
     @InjectRepository(User)
-    private readonly userRepository: Repository<User>
+    private readonly userRepository: Repository<User>,
+    @InjectQueue('document-processing-queue')
+    private readonly documentProcessingQueue: Queue,
   ) {}
 
 
@@ -29,9 +33,23 @@ export class DocumentService {
     });
 
     newDocument.user = user;
-    return await this.documentRepository.save(newDocument)
+    const savedDocument = await this.documentRepository.save(newDocument)
+    console.log("Adding document to queue", savedDocument.id);
+    await this.documentProcessingQueue.add('document-processing', {
+      documentId: savedDocument.id,
+      path: savedDocument.storageUrl,
+    },
+    {
+      jobId: savedDocument.id,
+      removeOnComplete: true,
+      attempts: 3,
+      backoff: {
+        type: 'exponential',
+        delay: 5000,
+      },
+    });
 
-
+    return savedDocument;
   }
 
 
