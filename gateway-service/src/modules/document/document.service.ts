@@ -5,6 +5,7 @@ import { Document, DocumentStatus } from './entities/document.entity.js';
 import { User } from '../user/entities/user.entity.js';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import path from 'path';
 
 @Injectable()
 export class DocumentService {
@@ -28,7 +29,7 @@ export class DocumentService {
 
     const newDocument = this.documentRepository.create({
       fileName: file.originalname,
-      storageUrl: `./uploads/${file.filename}`, // Maps to our local hot-reload file workspace path
+      storageUrl: path.join(process.env.SHARED_UPLOAD || '', file.filename), // Maps to our local hot-reload file workspace path
       status: DocumentStatus.PENDING,
     });
 

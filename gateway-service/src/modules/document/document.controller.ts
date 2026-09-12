@@ -16,7 +16,13 @@ export class DocumentController {
   @UseInterceptors(
     FileInterceptor('file', {
       storage: diskStorage({
-        destination: './uploads', // Creates an asset buffer directory locally
+        destination: (req, file, cb) => {
+          const dir = process.env.SHARED_UPLOAD;
+          if (!dir) {
+            return cb(new Error('SHARED_UPLOAD is not set'), '');
+          }
+          cb(null, dir);
+        }, // Creates an asset buffer directory locally
         filename: (req, file, cb) => {
           // Generate a highly clean filename timeline string to prevent duplicate state overwrite bugs
           const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);

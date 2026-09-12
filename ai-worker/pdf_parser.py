@@ -13,6 +13,7 @@ class PdfParserService:
         )
 
     async def parse_pdf(self, pdf_path: str) -> str:
+        print(f"Parsing PDF from {pdf_path}")
         if not pdf_path or not os.path.exists(pdf_path):
             raise ValueError("PDF path is required")
         extractions =  await self.parser.aload_data(pdf_path)

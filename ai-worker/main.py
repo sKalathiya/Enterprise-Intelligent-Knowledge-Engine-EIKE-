@@ -1,5 +1,6 @@
 import os
 import time
+import uuid
 import asyncio
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
@@ -83,13 +84,13 @@ app.add_middleware(
 
 
 class Document(BaseModel):
-   # document_id: uuid.UUID = Field(..., description="The ID of the document to process")
+    document_id: str = Field(..., description="The ID of the document to process")
     path: str = Field(..., description="The path of the document to process")
 
 
 
  
-text_processor = TextProcessorService()
+text_processor = TextProcessorService() 
 pdf_parser = PdfParserService()
 embedding_service = EmbeddingService()
 
@@ -103,6 +104,7 @@ async def health():
 async def ingest_document_payload(request: Request, job: Document, db: Session = Depends(get_db)):
     """Parse a PDF already on disk, then chunk the extracted markdown."""
     try:
+        print(f"Processing document {job.document_id} with path {job.path}")
         content = await pdf_parser.parse_pdf(job.path)
         chunks = text_processor.split_text(content)
         if len(chunks) == 0:
