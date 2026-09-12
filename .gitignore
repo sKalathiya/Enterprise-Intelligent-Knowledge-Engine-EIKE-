@@ -20,3 +20,6 @@ env/
 .DS_Store
 Thumbs.db
 .docker/
+
+# User-uploaded documents
+uploads/
