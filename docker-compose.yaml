@@ -13,7 +13,7 @@ volumes:
 
 services:
   postgres_db:
-    image: postgres:15.1-alpine
+    image: pgvector/pgvector:pg16
     container_name: eike_postgres_db
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
