@@ -1,6 +1,6 @@
 import os
 import time
-import uuid
+import asyncio
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, status
@@ -14,6 +14,10 @@ from slowapi.util import get_remote_address
 import uvicorn
 from text_processor import TextProcessorService
 from pdf_parser import PdfParserService
+from core.database import get_db
+from sqlalchemy.orm import Session
+from core.embeddings import EmbeddingService
+from core.document_chunk import DocumentChunk
 
 limiter = Limiter(key_func=get_remote_address)
 
@@ -87,6 +91,7 @@ class Document(BaseModel):
  
 text_processor = TextProcessorService()
 pdf_parser = PdfParserService()
+embedding_service = EmbeddingService()
 
 @app.get("/health",status_code=status.HTTP_200_OK)
 async def health():
@@ -95,20 +100,31 @@ async def health():
 
 @app.post("/process", status_code=status.HTTP_200_OK)
 @limiter.limit("60/minute")
-async def ingest_document_payload(request: Request, payload: Document):
+async def ingest_document_payload(request: Request, job: Document, db: Session = Depends(get_db)):
     """Parse a PDF already on disk, then chunk the extracted markdown."""
     try:
-        content = await pdf_parser.parse_pdf(payload.path)
+        content = await pdf_parser.parse_pdf(job.path)
+        chunks = text_processor.split_text(content)
+        if len(chunks) == 0:
+            return {"status": "skipped", "message": "No chunks found"}
+        
+        chunk_batches = [chunks[i:i+50] for i in range(0, len(chunks), 50)]
+
+        api_tasks = [embedding_service.embed_text(batch) for batch in chunk_batches]
+
+        vector_matrices = await asyncio.gather(*api_tasks)
+
+        for i, vector_matrix in enumerate(vector_matrices):
+            for j, chunk in enumerate(chunk_batches[i]):
+                db.add(DocumentChunk(document_id=job.document_id, content=chunk, embedding=vector_matrix[j]))
+        db.commit()
+        
+        return {"status": "ok", "message": "Document ingested successfully", "chunks": len(chunks), "chunk_sample": chunks[0] if chunks else None, "batch_size": len(chunk_batches)}    
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    chunks = text_processor.split_text(content)
-    print(f"Chunks: {len(chunks)}")
-    return {
-        "status": "ok",
-        "markdown_preview": content[:2000],
-        "chunks": len(chunks),
-        "chunk_sample": chunks[0] if chunks else None,
-    }
+        db.rollback()
+        print(f"Error parsing PDF: {exc}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
+   
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host=os.getenv("AI_WORKER_HOST") or "0.0.0.0", port=int(os.getenv("AI_WORKER_PORT")) or 8000, reload=True)
