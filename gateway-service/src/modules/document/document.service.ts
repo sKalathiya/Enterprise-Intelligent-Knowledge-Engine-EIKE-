@@ -39,6 +39,7 @@ export class DocumentService {
     await this.documentProcessingQueue.add('document-processing', {
       documentId: savedDocument.id,
       path: savedDocument.storageUrl,
+      user_id: user_id,
     },
     {
       jobId: savedDocument.id,

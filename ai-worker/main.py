@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
+from starlette.status import HTTP_400_BAD_REQUEST, HTTP_500_INTERNAL_SERVER_ERROR
 import uvicorn
 from text_processor import TextProcessorService
 from pdf_parser import PdfParserService
@@ -82,17 +83,16 @@ app.add_middleware(
 
 router = APIRouter(prefix="/api/v1/ai")
 
-
-class Document(BaseModel):
-    document_id: str = Field(..., description="The ID of the document to process")
-    path: str = Field(..., description="The path of the document to process")
-
-
-
- 
 text_processor = TextProcessorService() 
 pdf_parser = PdfParserService()
 embedding_service = EmbeddingService()
+
+
+
+class Document(BaseModel):
+    document_id: str = Field(..., description="The ID of the document to process")
+    user_id: str = Field(..., description="The ID of the user making the request")
+    path: str = Field(..., description="The path of the document to process")
 
 @router.get("/health", status_code=status.HTTP_200_OK)
 async def health():
@@ -118,7 +118,7 @@ async def ingest_document_payload(request: Request, job: Document, db: Session =
 
         for i, vector_matrix in enumerate(vector_matrices):
             for j, chunk in enumerate(chunk_batches[i]):
-                db.add(DocumentChunk(document_id=job.document_id, content=chunk, embedding=vector_matrix[j]))
+                db.add(DocumentChunk(document_id=job.document_id, user_id=job.user_id, content=chunk, embedding=vector_matrix[j]))
         db.commit()
         
         return {"status": "ok", "message": "Document ingested successfully", "chunks": len(chunks), "chunk_sample": chunks[0] if chunks else None, "batch_size": len(chunk_batches)}    
@@ -126,6 +126,46 @@ async def ingest_document_payload(request: Request, job: Document, db: Session =
         db.rollback()
         print(f"Error parsing PDF: {exc}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
+
+
+# --- NEW: MULTI-TENANT QUERY INPUT SCHEMA CONTROLS ---
+
+class RAGQueryJob(BaseModel):
+    query: str = Field (..., description="The query to search the document")
+    user_id: str = Field (..., description="The ID of the user making the request")
+
+@router.post("/query", status_code=status.HTTP_200_OK)
+@limiter.limit("60/minute")
+async def query_documents(queryJob: RAGQueryJob, db: Session = Depends(get_db())):
+    user_id = queryJob.user_id
+    query = queryJob.query
+    try:
+        embeddedQuery = embedding_service.embed_text([query])[0]
+
+        similar_vectors = db.query(DocumentChunk).\
+                            filter(DocumentChunk.user_id == user_id).\
+                            order_by(DocumentChunk.embedding.cosine_distance(embeddedQuery)).\
+                            limit(10).\
+                            all()
+
+        matched_contents = [chunk.content for chunk in similar_vectors]
+
+        return {
+            "status" : "ok",
+            "matched_contents" : matched_contents
+        }
+
+    except Exception as e:   
+        raise HTTPException(
+            status = HTTP_500_INTERNAL_SERVER_ERROR,
+            detail= str(e)
+        ) 
+    
+    
+                    
+
+    
+
 
 
 app.include_router(router)

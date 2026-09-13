@@ -24,7 +24,7 @@ export class DocumentProcessor extends WorkerHost {
     ) { super(); }
 
     async process(job: Job) {
-        const { documentId, path } = job.data;
+        const { documentId, path, user_id } = job.data;
         const document = await this.documentRepository.findOneBy({ id: documentId });
         if (!document) {
             throw new Error('Document not found');
@@ -40,7 +40,7 @@ export class DocumentProcessor extends WorkerHost {
             throw new Error('DOCUMENT_SERVICE_URL is not set');
         }
         try{
-            const response = this.httpService.post(documentServiceUrl, { document_id: documentId, path: path }, { headers: { 'X-Internal-Api-Key': documentServiceToken } });
+            const response = this.httpService.post(documentServiceUrl, { document_id: documentId, path: path, user_id: user_id }, { headers: { 'X-Internal-Api-Key': documentServiceToken } });
             const axiosResponse = await firstValueFrom(response);
             this.logger.log(`Document ${documentId} processed successfully`);
             await this.documentRepository.update(documentId, { status: DocumentStatus.COMPLETED });
