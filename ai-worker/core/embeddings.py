@@ -13,7 +13,7 @@ class EmbeddingService:
         if not self.model_name:
             raise ValueError("No model found with embedContent support")
 
-    async def embed_text(self, chunks: list[str]) -> list[float]:
+    async def embed_content(self, chunks: list[str]) -> list[float]:
         if chunks is None or len(chunks) == 0:
             return []
         try:
@@ -26,5 +26,20 @@ class EmbeddingService:
 
             return response["embedding"] if response["embedding"] else None
         except Exception as e:
-            print(f"Error embedding text: {e}")
+            print(f"Error embedding chunks: {e}")
+            raise e
+    
+    async def embed_query(self, query: str) -> list[float]:
+        if not query:
+            return []
+        try:
+            response = await genai.embed_content_async(
+                model=self.model_name,
+                content=query,
+                task_type="retrieval_query",
+                output_dimensionality=768,
+            )
+            return response["embedding"] if response["embedding"] else None
+        except Exception as e:
+            print(f"Error embedding query: {e}")
             raise e

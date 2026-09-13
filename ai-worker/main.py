@@ -14,13 +14,14 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_500_INTERNAL_SERVER_ERROR
 import uvicorn
+
 from text_processor import TextProcessorService
 from pdf_parser import PdfParserService
 from core.database import get_db
 from sqlalchemy.orm import Session
 from core.embeddings import EmbeddingService
 from core.document_chunk import DocumentChunk
-
+from core.generativeService import GenerativeService
 limiter = Limiter(key_func=get_remote_address)
 
 load_dotenv("../.env")
@@ -86,6 +87,7 @@ router = APIRouter(prefix="/api/v1/ai")
 text_processor = TextProcessorService() 
 pdf_parser = PdfParserService()
 embedding_service = EmbeddingService()
+generative_service = GenerativeService()
 
 
 
@@ -112,7 +114,7 @@ async def ingest_document_payload(request: Request, job: Document, db: Session =
         
         chunk_batches = [chunks[i:i+50] for i in range(0, len(chunks), 50)]
 
-        api_tasks = [embedding_service.embed_text(batch) for batch in chunk_batches]
+        api_tasks = [embedding_service.embed_content(batch) for batch in chunk_batches]
 
         vector_matrices = await asyncio.gather(*api_tasks)
 
@@ -136,25 +138,48 @@ class RAGQueryJob(BaseModel):
 
 @router.post("/query", status_code=status.HTTP_200_OK)
 @limiter.limit("60/minute")
-async def query_documents(queryJob: RAGQueryJob, db: Session = Depends(get_db())):
+async def query_documents(request: Request, queryJob: RAGQueryJob, db: Session = Depends(get_db)):
     user_id = queryJob.user_id
     query = queryJob.query
     try:
-        embeddedQuery = embedding_service.embed_text([query])[0]
+        results = await embedding_service.embed_query([query])
+        embeddedQuery = results[0]
 
         similar_vectors = db.query(DocumentChunk).\
                             filter(DocumentChunk.user_id == user_id).\
                             order_by(DocumentChunk.embedding.cosine_distance(embeddedQuery)).\
-                            limit(10).\
+                            limit(5).\
                             all()
 
         matched_contents = [chunk.content for chunk in similar_vectors]
 
-        return {
-            "status" : "ok",
-            "matched_contents" : matched_contents
-        }
+        if not matched_contents:
+            return {
+                "status" : "Completed",
+                "answer" : "I apologize, but you have not uploaded any document indexes yet. Please upload files before querying the engine.",
+                "sources" : []
+            }
 
+        context_payload = "\n\n---\n\n".join(matched_contents)
+        user_prompt = f"""Question: {query}
+                    Write a natural, formal paragraph that answers the question.
+                    Do not return JSON, YAML, or bullet lists unless the user asked for a list.
+
+                    [START OF CONTEXT]
+                    {context_payload}
+                    [END OF CONTEXT]
+                    """
+        
+        response = await generative_service.generate_content(user_prompt)
+        sources = [chunk.document_id for chunk in similar_vectors]
+        if response is None or len(response) == 0:
+            response = "I apologize, but the requested information is not present in our uploaded document index."
+
+        return {
+            "status" : "Completed",
+            "answer" : response,
+            "sources" : sources
+        }
     except Exception as e:   
         raise HTTPException(
             status = HTTP_500_INTERNAL_SERVER_ERROR,

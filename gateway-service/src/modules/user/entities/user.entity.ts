@@ -6,7 +6,6 @@ import { Exclude } from "class-transformer";
 @Entity("users")
 export class User{
     @PrimaryGeneratedColumn("uuid")
-    @Exclude()
     id: string
 
     @Column({type: "varchar", length: 255, nullable: true})
