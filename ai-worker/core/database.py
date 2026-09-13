@@ -6,14 +6,20 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 
+load_dotenv("../.env")
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://admin_user:secure_db_password_2026@localhost:5432/eike_production_db")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL is not set")
 
-engine = create_engine(DATABASE_URL, echo=True)
+engine = create_engine(DATABASE_URL, 
+echo=True, 
+pool_size=20,       
+max_overflow=50,    
+pool_timeout=30     
+)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

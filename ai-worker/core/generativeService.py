@@ -1,6 +1,8 @@
 import os
 from dotenv import load_dotenv
 import google.generativeai as genai
+import asyncio
+
 
 
 load_dotenv()
@@ -28,16 +30,25 @@ class GenerativeService:
     async def generate_content(self, prompt: str) -> str:
         
         try:
-            response = await self.model.generate_content_async(
+            response_stream = await self.model.generate_content_async(
                 contents=[prompt],
                 generation_config=genai.GenerationConfig(
                     temperature=0.0,
                     response_mime_type="text/plain",
                     max_output_tokens=1000,
                 ),
+                stream=True,
                 request_options={"timeout": 30},
             )
-            return response.text
+
+            async for response in response_stream:
+                if response.text:
+                    yield response.text
+
+        except asyncio.CancelledError:
+        # Executes if the client disconnects mid-stream
+                print("Client dropped the connection. Stopping generation.")
+                raise asyncio.CancelledError("Client dropped the connection. Stopping generation.")
         except Exception as e:   
             raise ValueError(f"Failed to generate content: {e}") from e
     

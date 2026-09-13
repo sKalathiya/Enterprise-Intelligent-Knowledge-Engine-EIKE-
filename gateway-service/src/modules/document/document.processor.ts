@@ -31,7 +31,7 @@ export class DocumentProcessor extends WorkerHost {
         }
         this.documentRepository.update(documentId, { status: DocumentStatus.PROCESSING });
         this.logger.log(`Processing document ${documentId} with path ${path}`);
-        const documentServiceUrl = this.configService.get('DOCUMENT_SERVICE_URL');
+        const documentServiceUrl = this.configService.get('DOCUMENT_SERVICE_URL') + '/process';
         const documentServiceToken = this.configService.get('API_KEY')
         if (!documentServiceToken) {
             throw new Error('API_KEY is not set');

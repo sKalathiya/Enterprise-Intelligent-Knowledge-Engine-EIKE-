@@ -14,17 +14,22 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_500_INTERNAL_SERVER_ERROR
 import uvicorn
-
+import json
 from text_processor import TextProcessorService
 from pdf_parser import PdfParserService
-from core.database import get_db
+from core.database import SessionLocal, get_db
 from sqlalchemy.orm import Session
 from core.embeddings import EmbeddingService
 from core.document_chunk import DocumentChunk
 from core.generativeService import GenerativeService
+from starlette.responses import StreamingResponse
+
+
+
 limiter = Limiter(key_func=get_remote_address)
 
 load_dotenv("../.env")
+load_dotenv()
 
 
 @asynccontextmanager
@@ -55,7 +60,12 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
-app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "ai-worker", "127.0.0.1"])
+_allowed_hosts = [
+    host.strip()
+    for host in (os.getenv("AI_WORKER_ALLOWED_HOSTS") or "localhost,127.0.0.1,ai-worker").split(",")
+    if host.strip()
+]
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=_allowed_hosts)
 
 # timing middleware
 @app.middleware("http")
@@ -138,18 +148,22 @@ class RAGQueryJob(BaseModel):
 
 @router.post("/query", status_code=status.HTTP_200_OK)
 @limiter.limit("60/minute")
-async def query_documents(request: Request, queryJob: RAGQueryJob, db: Session = Depends(get_db)):
+async def query_documents(request: Request, queryJob: RAGQueryJob):
     user_id = queryJob.user_id
     query = queryJob.query
     try:
         results = await embedding_service.embed_query([query])
         embeddedQuery = results[0]
-
-        similar_vectors = db.query(DocumentChunk).\
+        
+        db = SessionLocal()
+        try:
+            similar_vectors = db.query(DocumentChunk).\
                             filter(DocumentChunk.user_id == user_id).\
                             order_by(DocumentChunk.embedding.cosine_distance(embeddedQuery)).\
                             limit(5).\
                             all()
+        finally:
+            db.close()
 
         matched_contents = [chunk.content for chunk in similar_vectors]
 
@@ -169,17 +183,22 @@ async def query_documents(request: Request, queryJob: RAGQueryJob, db: Session =
                     {context_payload}
                     [END OF CONTEXT]
                     """
-        
-        response = await generative_service.generate_content(user_prompt)
         sources = [chunk.document_id for chunk in similar_vectors]
-        if response is None or len(response) == 0:
-            response = "I apologize, but the requested information is not present in our uploaded document index."
 
-        return {
-            "status" : "Completed",
-            "answer" : response,
-            "sources" : sources
-        }
+        async def event_stream():
+            yield f"data:{json.dumps({'type':'sources', 'sources': sources})}\n\n"
+
+            async for text in generative_service.generate_content(user_prompt):
+                yield f"data:{json.dumps({'type':'token', 'token': text})}\n\n"
+            
+            yield f"data:{json.dumps({'type':'end'})}\n\n"
+
+
+        return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+    except asyncio.CancelledError:
+        print("Client dropped the connection. Stopping generation.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Client dropped the connection. Stopping generation.")
     except Exception as e:   
         raise HTTPException(
             status = HTTP_500_INTERNAL_SERVER_ERROR,

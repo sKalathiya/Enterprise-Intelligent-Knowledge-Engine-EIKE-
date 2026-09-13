@@ -1,14 +1,16 @@
 name: Enterprise-Intelligent-Knowledge-Engine
 
 networks:
+  # Private: apps talk to each other. No host port publish.
+  # Not internal:true — worker still needs outbound HTTPS (Gemini, LlamaParse).
   eike_network:
     driver: bridge
-    # internal: true
+  # Public: only the gateway is attached. Host reaches :3000 here.
   public_network:
     driver: bridge
 
 volumes:
-  postgres_data:  
+  postgres_data:
   redis_data:
 
 services:
@@ -19,15 +21,16 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-    ports:
-      - "${POSTGRES_PORT}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - eike_network
     restart: unless-stopped
-    depends_on:
-      - redis_cache
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     deploy:
       resources:
         limits:
@@ -36,19 +39,20 @@ services:
         reservations:
           cpus: "0.25"
           memory: 256M
-  
-
 
   redis_cache:
     image: redis:7.0-alpine
     container_name: eike_redis_cache
-    ports:
-      - "${REDIS_PORT}:6379" 
     volumes:
       - redis_data:/data
     networks:
       - eike_network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     deploy:
       resources:
         limits:
@@ -57,63 +61,71 @@ services:
         reservations:
           cpus: "0.1"
           memory: 64M
-  
-  # gateway-service:
-  #   build:
-  #     context: ./gateway-service
-  #     dockerfile: Dockerfile
-  #   container_name: eike_gateway_service
-  #   ports:
-  #     - "${GATEWAY_SERVICE_PORT}:3000"
-  #   networks:
-  #     - eike_network
-  #     - public_network
-  #   restart: unless-stopped
-  #   depends_on:
-  #     - postgres_db
-  #     - redis_cache
-  #   environment:
-  #     - POSTGRES_USER=${POSTGRES_USER}
-  #     - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-  #     - POSTGRES_DB=${POSTGRES_DB}
-  #     - POSTGRES_PORT=${POSTGRES_PORT}
-  #     - REDIS_HOST=${REDIS_HOST}
-  #     - REDIS_PORT=${REDIS_PORT}
-  #     - GATEWAY_SERVICE_PORT=${GATEWAY_SERVICE_PORT}
-  #     - GATEWAY_SERVICE_NODE_ENV=${GATEWAY_SERVICE_NODE_ENV}
-  #     - GATEWAY_SERVICE_CORS_ORIGIN=${GATEWAY_SERVICE_CORS_ORIGIN}
-  #   deploy:
-  #     resources:
-  #       limits:
-  #         cpus: "1"
-  #         memory: 512M
-  #       reservations:
-  #         cpus: "0.25"
-  #         memory: 256M
-       
 
-  # ai-worker:
-  #   build:
-  #     context: ./ai-worker
-  #     dockerfile: Dockerfile
-  #   container_name: eike_ai_worker
-  #   ports:
-  #     - "${AI_WORKER_PORT}:8000"
-  #   networks:
-  #     - eike_network
-  #   restart: unless-stopped
-  #   depends_on:
-  #     - redis_cache
-  #   environment:
-  #     - API_KEY=${API_KEY}
-  #     - AI_WORKER_PORT=${AI_WORKER_PORT}
-  #     - AI_WORKER_NODE_ENV=${AI_WORKER_NODE_ENV}
-  #     - AI_WORKER_CORS_ORIGIN=${AI_WORKER_CORS_ORIGIN}
-  #   deploy:
-  #     resources:
-  #       limits:
-  #         cpus: "1.5"
-  #         memory: 1G
-  #       reservations:
-  #         cpus: "0.50"
-  #         memory: 512M
+  ai-worker:
+    build:
+      context: ./ai-worker
+      dockerfile: Dockerfile
+    container_name: eike_ai_worker
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: postgres_db
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres_db:5432/${POSTGRES_DB}
+      SHARED_UPLOAD: /shared/uploads
+      AI_WORKER_HOST: 0.0.0.0
+      AI_WORKER_PORT: 8000
+    volumes:
+      - ./uploads:/shared/uploads
+    networks:
+      - eike_network
+    restart: unless-stopped
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: 1G
+        reservations:
+          cpus: "0.50"
+          memory: 512M
+
+  gateway-service:
+    build:
+      context: ./gateway-service
+      dockerfile: Dockerfile
+    container_name: eike_gateway_service
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      POSTGRES_HOST: postgres_db
+      REDIS_HOST: redis_cache
+      SHARED_UPLOAD: /shared/uploads
+      DOCUMENT_SERVICE_URL: http://ai-worker:8000/api/v1/ai
+      GATEWAY_SERVICE_PORT: 3000
+    ports:
+      - "${GATEWAY_SERVICE_PORT}:3000"
+    volumes:
+      - ./uploads:/shared/uploads
+    networks:
+      - public_network
+      - eike_network
+    restart: unless-stopped
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+      redis_cache:
+        condition: service_healthy
+      ai-worker:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 256M

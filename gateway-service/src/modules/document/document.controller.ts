@@ -1,6 +1,7 @@
-import { Controller, Get, Post, UseInterceptors, Req, BadRequestException, UploadedFile, ClassSerializerInterceptor } from '@nestjs/common';
+import { Controller, Get, Post, UseInterceptors, Req, BadRequestException, UploadedFile, ClassSerializerInterceptor, Sse, Body } from '@nestjs/common';
 import { DocumentService } from './document.service.js';
 import { CreateDocumentDto } from './dto/create-document.dto.js';
+import { SearchQueryDto } from './dto/search-query.dto.js';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { extname } from 'path';
 import { diskStorage } from 'multer';
@@ -57,6 +58,18 @@ export class DocumentController {
   @ApiResponse({ status: 401, description: 'JWT signature pass missing or invalid.' })
   async getUserDocuments(@Req() req: any) {
     return this.documentService.getUserDocuments(req.user.id as string);
+  }
+
+
+  @Post('query')
+  @Sse()
+  @ApiBearerAuth()
+  @ApiBody({ type: SearchQueryDto })
+  @ApiOperation({ summary: 'Search documents for query and stream the results' })
+  @ApiResponse({ status: 200, description: 'Successfully retrieved results for the query.' })
+  @ApiResponse({ status: 401, description: 'JWT signature pass missing or invalid.' })
+  async searchDocuments(@Body() body: SearchQueryDto, @Req() req: any) {
+    return this.documentService.searchDocuments(body.query, req.user.id as string);
   }
 
 }
