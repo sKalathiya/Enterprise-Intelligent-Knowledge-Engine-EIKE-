@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, HttpException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Document, DocumentStatus } from './entities/document.entity.js';
@@ -9,6 +9,8 @@ import path from 'path';
 import { HttpService } from '@nestjs/axios';
 import { Observable } from 'rxjs';
 import { Readable } from 'stream';
+import * as fs from 'fs/promises';
+import { firstValueFrom } from 'rxjs';
 
 @Injectable()
 export class DocumentService {
@@ -127,6 +129,51 @@ export class DocumentService {
         stream.destroy();
       };
     })  ;
+  }
+
+
+  async deleteDocument(documentId: string, userId: string) {
+
+    const doc = await this.documentRepository.findOneBy({id: documentId , user: {id: userId}})
+    if(!doc){
+      throw new NotFoundException("No such document found!")
+    }
+
+    await this.documentProcessingQueue.remove(doc.id).catch((error) => undefined);
+
+    await firstValueFrom(
+    this.httpService.delete(
+      `${process.env.DOCUMENT_SERVICE_URL}/chunks/document/${documentId}`,
+      {
+        headers: { 'X-Internal-Api-Key': process.env.API_KEY as string },
+      },
+    ),
+  );
+  if (doc.storageUrl) {
+    await fs.unlink(doc.storageUrl).catch(() => undefined);
+  }
+  await this.documentRepository.remove(doc);
+  return { status: 'deleted', id: documentId };
+  }
+
+  async retryDocument(documentId: string, userId: string) {
+    const doc = await this.documentRepository.findOne({
+      where: { id: documentId, user: { id: userId } },
+    });
+    if (!doc) throw new NotFoundException('Document not found');
+    if (doc.status !== DocumentStatus.FAILED) {
+      throw new BadRequestException('Only failed documents can be retried');
+    }
+    await this.documentProcessingQueue.remove(documentId).catch(() => undefined);
+    doc.status = DocumentStatus.PENDING;
+    doc.errorMessage = '';
+    await this.documentRepository.save(doc);
+    await this.documentProcessingQueue.add(
+      'document-processing',
+      { documentId: doc.id, path: doc.storageUrl, user_id: userId },
+      { jobId: doc.id, removeOnComplete: true, attempts: 3, backoff: { type: 'exponential', delay: 5000 } },
+    );
+    return doc;
   }
 
 }

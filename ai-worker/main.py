@@ -4,7 +4,7 @@ import uuid
 import asyncio
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, FastAPI, File, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, FastAPI, File, HTTPException, Request, UploadFile, status, Path, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.security import APIKeyHeader
@@ -128,6 +128,8 @@ async def ingest_document_payload(request: Request, job: Document, db: Session =
 
         vector_matrices = await asyncio.gather(*api_tasks)
 
+        
+
         for i, vector_matrix in enumerate(vector_matrices):
             for j, chunk in enumerate(chunk_batches[i]):
                 db.add(DocumentChunk(document_id=job.document_id, user_id=job.user_id, content=chunk, embedding=vector_matrix[j]))
@@ -152,14 +154,13 @@ async def query_documents(request: Request, queryJob: RAGQueryJob):
     user_id = queryJob.user_id
     query = queryJob.query
     try:
-        results = await embedding_service.embed_query([query])
-        embeddedQuery = results[0]
-        
+        embedded_query = await embedding_service.embed_query([query])
+
         db = SessionLocal()
         try:
             similar_vectors = db.query(DocumentChunk).\
                             filter(DocumentChunk.user_id == user_id).\
-                            order_by(DocumentChunk.embedding.cosine_distance(embeddedQuery)).\
+                            order_by(DocumentChunk.embedding.cosine_distance(embedded_query)).\
                             limit(5).\
                             all()
         finally:
@@ -204,13 +205,32 @@ async def query_documents(request: Request, queryJob: RAGQueryJob):
             status = HTTP_500_INTERNAL_SERVER_ERROR,
             detail= str(e)
         ) 
-    
-    
-                    
 
     
+@router.delete("/chunks/document/{document_id}", status_code=status.HTTP_200_OK)
+@limiter.limit("60/minute")
+async def delete_document_chunks(request: Request, 
+                                    document_id: str = Path(..., description="The ID of the document to delete chunks for" ),
+                                    db: Session = Depends(get_db)):
+    try:
+        db.query(DocumentChunk).filter(DocumentChunk.document_id == document_id).delete(synchronize_session=False)
+        db.commit()
+        return {"status": "ok", "message": "Document chunks deleted successfully", "document_id": document_id}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
 
 
+@router.delete("/chunks/user/{user_id}", status_code=status.HTTP_200_OK)
+@limiter.limit("60/minute")
+async def delete_user_chunks(request: Request, user_id: str=Path(..., description="The ID of the user to delete chunks for" ), db: Session = Depends(get_db)):
+    try:
+        db.query(DocumentChunk).filter(DocumentChunk.user_id == user_id).delete(synchronize_session=False)
+        db.commit()
+        return {"status": "ok", "message": "User document chunks deleted successfully", "user_id": user_id}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
 
 app.include_router(router)
 

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, UseInterceptors, Req, BadRequestException, UploadedFile, ClassSerializerInterceptor, Sse, Body } from '@nestjs/common';
+import { Controller, Get, Post, UseInterceptors, Req, BadRequestException, UploadedFile, ClassSerializerInterceptor, Sse, Body, Delete, Param } from '@nestjs/common';
 import { DocumentService } from './document.service.js';
 import { CreateDocumentDto } from './dto/create-document.dto.js';
 import { SearchQueryDto } from './dto/search-query.dto.js';
@@ -72,4 +72,24 @@ export class DocumentController {
     return this.documentService.searchDocuments(body.query, req.user.id as string);
   }
 
+  @Delete('delete/:id')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Delete a document by its ID' })
+  @ApiResponse({ status: 200, description: 'Document deleted successfully.' })
+  @ApiResponse({ status: 401, description: 'JWT signature pass missing or invalid.' })
+  @ApiResponse({ status: 404, description: 'Document not found.' })
+  async deleteDocument(@Param('id') id: string, @Req() req: any) {
+    return this.documentService.deleteDocument(id, req.user.id as string);
+  }
+
+  @Post('retry/:id')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Retry a failed document parse by its ID' })
+  @ApiResponse({ status: 200, description: 'Document parse retried successfully.' })
+  @ApiResponse({ status: 401, description: 'JWT signature pass missing or invalid.' })
+  @ApiResponse({ status: 404, description: 'Document not found.' })
+  @ApiResponse({ status: 400, description: 'Only failed documents can be retried.' })
+  async retryDocument(@Param('id') id: string, @Req() req: any) {
+    return this.documentService.retryDocument(id, req.user.id as string);
+  }
 }

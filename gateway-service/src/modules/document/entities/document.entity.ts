@@ -13,7 +13,6 @@ export enum DocumentStatus {
 @Entity("documents")
 export class Document{
     @PrimaryGeneratedColumn("uuid")
-    @Exclude()
     id: string
 
     @Column({type: "varchar", length: 255, nullable: false})
