@@ -6,6 +6,8 @@ import { JwtService } from '@nestjs/jwt';
 import { RegisterDto } from './dto/register.dto.js';
 import { LoginDto } from './dto/login.dto.js';
 import bcrypt from 'bcrypt';
+import { Team } from '../team/entities/team.entity.js';
+import { TeamMember } from '../team/entities/team-member.entity.js';
 
 
 @Injectable()
@@ -13,7 +15,11 @@ export class AuthService {
     constructor(
         @InjectRepository(User)
         private readonly userRepository: Repository<User>,
-        private readonly jwtService: JwtService
+        private readonly jwtService: JwtService,
+        @InjectRepository(Team)
+        private readonly teamRepository: Repository<Team>,
+        @InjectRepository(TeamMember)
+        private readonly teamMemberRepository: Repository<TeamMember>,
     ) {}
 
 
@@ -28,6 +34,10 @@ export class AuthService {
         const passwordHash = await bcrypt.hash(password, 10);
         const user = this.userRepository.create({firstName, lastName, email, passwordHash});
         await this.userRepository.save(user);
+        const team = this.teamRepository.create({name: "Private", owner: user});
+        const teamMember = this.teamMemberRepository.create({team: team, user: user});
+        await this.teamMemberRepository.save(teamMember);
+        await this.teamRepository.save(team);
         return {msg: "Registration is successfull!"}
     }
 

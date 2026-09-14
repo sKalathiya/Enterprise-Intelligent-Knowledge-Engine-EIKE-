@@ -1,7 +1,8 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, CreateDateColumn, UpdateDateColumn } from "typeorm";
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, CreateDateColumn, UpdateDateColumn, OneToMany, JoinColumn, Index } from "typeorm";
 import type { Relation } from "typeorm";
 import { User } from "../../user/entities/user.entity.js";
 import { Exclude } from "class-transformer";
+import { TeamDocument } from "../../team/entities/team-document.entity.js";
 
 export enum DocumentStatus {
     PENDING = "pending",
@@ -29,8 +30,13 @@ export class Document{
     @Exclude()
     errorMessage: string
 
-    @ManyToOne(() => User, (user: User) => user.documents , {onDelete: "CASCADE"})
-    user: Relation<User>
+    @OneToMany(() => TeamDocument, (teamDocument: TeamDocument) => teamDocument.document)
+    teams: TeamDocument[]
+
+    @ManyToOne(() => User, (user: User) => user.documents, { onDelete: 'CASCADE' })
+    @JoinColumn({ name: 'userId' })
+    @Index()
+    user: User;
 
     @CreateDateColumn({type: "timestamp", nullable: false})
     createdAt: Date

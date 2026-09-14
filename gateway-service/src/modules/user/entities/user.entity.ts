@@ -2,6 +2,9 @@ import { Column, CreateDateColumn, Entity, Index, OneToMany, PrimaryGeneratedCol
 import type { Relation } from "typeorm";
 import { Document } from "../../document/entities/document.entity.js";
 import { Exclude } from "class-transformer";
+import { Team } from "../../team/entities/team.entity.js";
+import { TeamMember } from "../../team/entities/team-member.entity.js";
+
 
 @Entity("users")
 export class User{
@@ -23,8 +26,14 @@ export class User{
     @Exclude()
     passwordHash: string
 
+    @OneToMany(()=> TeamMember, (member: TeamMember) => member.user)
+    teams: TeamMember[]
+
     @OneToMany(() => Document, (document: Document) => document.user)
-    documents: Relation<Document[]>
+    documents: Document[]
+
+    @OneToMany(() => Team, (team: Team) => team.owner)
+    ownedTeams: Team[]
 
     @CreateDateColumn({type: "timestamp", nullable: false})
     createdAt: Date

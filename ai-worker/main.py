@@ -114,7 +114,6 @@ generative_service = GenerativeService()
 
 class Document(BaseModel):
     document_id: str = Field(..., description="The ID of the document to process")
-    user_id: str = Field(..., description="The ID of the user making the request")
     path: str = Field(..., description="The path of the document to process")
 
 @router.get("/health", status_code=status.HTTP_200_OK)
@@ -143,7 +142,7 @@ async def ingest_document_payload(request: Request, job: Document, db: Session =
 
         for i, vector_matrix in enumerate(vector_matrices):
             for j, chunk in enumerate(chunk_batches[i]):
-                db.add(DocumentChunk(document_id=job.document_id, user_id=job.user_id, content=chunk, embedding=vector_matrix[j]))
+                db.add(DocumentChunk(document_id=job.document_id, content=chunk, embedding=vector_matrix[j]))
         db.commit()
         
         return {"status": "ok", "message": "Document ingested successfully", "chunks": len(chunks), "chunk_sample": chunks[0] if chunks else None, "batch_size": len(chunk_batches)}    
@@ -157,23 +156,24 @@ async def ingest_document_payload(request: Request, job: Document, db: Session =
 
 class RAGQueryJob(BaseModel):
     query: str = Field (..., description="The query to search the document")
-    user_id: str = Field (..., description="The ID of the user making the request")
+    document_ids: list[str] = Field (..., description="The IDs of the documents to search")
+
 
 @router.post("/query", status_code=status.HTTP_200_OK)
 @limiter.limit("60/minute")
 async def query_documents(request: Request, queryJob: RAGQueryJob):
-    user_id = queryJob.user_id
     query = queryJob.query
     try:
         embedded_query = await embedding_service.embed_query([query])
 
         db = SessionLocal()
         try:
-            similar_vectors = db.query(DocumentChunk).\
-                            filter(DocumentChunk.user_id == user_id).\
-                            order_by(DocumentChunk.embedding.cosine_distance(embedded_query)).\
-                            limit(5).\
-                            all()
+            chunks = db.query(DocumentChunk)
+            chunks = chunks.filter(DocumentChunk.document_id.in_(queryJob.document_ids))
+            similar_vectors = chunks.\
+                                order_by(DocumentChunk.embedding.cosine_distance(embedded_query)).\
+                                limit(5).\
+                                all()
         finally:
             db.close()
 
@@ -240,16 +240,7 @@ async def delete_document_chunks(request: Request,
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
 
 
-@router.delete("/chunks/user/{user_id}", status_code=status.HTTP_200_OK)
-@limiter.limit("60/minute")
-async def delete_user_chunks(request: Request, user_id: str=Path(..., description="The ID of the user to delete chunks for" ), db: Session = Depends(get_db)):
-    try:
-        db.query(DocumentChunk).filter(DocumentChunk.user_id == user_id).delete(synchronize_session=False)
-        db.commit()
-        return {"status": "ok", "message": "User document chunks deleted successfully", "user_id": user_id}
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
+
 
 app.include_router(router)
 

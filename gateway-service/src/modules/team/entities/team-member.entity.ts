@@ -1,0 +1,22 @@
+import { CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from "typeorm";
+import { Team } from "./team.entity.js";
+import { User } from "../../user/entities/user.entity.js";
+
+@Entity('team_members')
+@Index(['team', 'user'], { unique: true })
+export class TeamMember {
+    @PrimaryGeneratedColumn('uuid')
+    id: string;
+
+    @ManyToOne(() => Team, (team: Team) => team.members, { onDelete: 'CASCADE' })
+    @JoinColumn({ name: 'teamId' })
+    team: Team;
+
+    @ManyToOne(() => User, (user: User) => user.teams, { onDelete: 'CASCADE' })
+    @JoinColumn({ name: 'userId' })
+    @Index()
+    user: User;
+
+    @CreateDateColumn({type: "timestamp", nullable: false})
+    joinedAt: Date
+}

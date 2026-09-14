@@ -7,6 +7,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { extname } from 'path';
 import { diskStorage } from 'multer';
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { ShareDocumentDto } from './dto/share-document.dto.js';
+import { UnshareDocumentDto } from './dto/unshare-document.dto.js';
 
 @Controller('document')
 @UseInterceptors(ClassSerializerInterceptor)
@@ -48,17 +50,51 @@ export class DocumentController {
   @ApiResponse({ status: 201, description: 'File accepted. Tracking record spawned successfully.' })
   @ApiResponse({ status: 400, description: 'File type constraints or size limitations violated.' })
   @ApiResponse({ status: 401, description: 'JWT signature pass missing or invalid.' })
-  async uploadDocument(@UploadedFile() file: any, @Req() req: any) {
-    return this.documentService.uploadDocument(file, req.user.id as string);
+  async uploadDocument(@UploadedFile() file: any, @Req() req: any, @Body() body: CreateDocumentDto) {
+    return this.documentService.uploadDocument(file, req.user.id as string, body.team_id);
   }
 
-  @Get('list')
+  @Get('list/me')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Retrieve processing state timelines for every document owned by the authenticated user' })
   @ApiResponse({ status: 200, description: 'Successfully retrieved document processing state timelines.' })
   @ApiResponse({ status: 401, description: 'JWT signature pass missing or invalid.' })
   async getUserDocuments(@Req() req: any) {
     return this.documentService.getUserDocuments(req.user.id as string);
+  }
+
+  @Get('list/team/:team_id')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Retrieve processing state timelines for every document owned by the authenticated user for this particular team' })
+  @ApiResponse({ status: 200, description: 'Successfully retrieved document processing state timelines.' })
+  @ApiResponse({ status: 401, description: 'JWT signature pass missing or invalid.' })
+  async getTeamDocuments(@Param('team_id') team_id: string, @Req() req: any) {
+    return this.documentService.getTeamDocuments(team_id, req.user.id as string);
+  }
+
+  @Post('share/:id')
+  @ApiBearerAuth()
+  @ApiBody({ type: ShareDocumentDto })
+  @ApiOperation({ summary: 'Share a document with one or more teams' })
+  @ApiResponse({ status: 200, description: 'Document shared successfully.' })
+  @ApiResponse({ status: 401, description: 'JWT signature pass missing or invalid.' })
+  @ApiResponse({ status: 404, description: 'Document not found.' })
+  @ApiResponse({ status: 400, description: 'Invalid team IDs.' })
+  async shareDocument(@Param('id') id: string, @Req() req: any, @Body() body: ShareDocumentDto) {
+    return this.documentService.shareDocument(id, req.user.id as string, body.team_ids);
+  }
+
+
+  @Post('unshare/:id')
+  @ApiBearerAuth()
+  @ApiBody({ type: UnshareDocumentDto })
+  @ApiOperation({ summary: 'Unshare a document from one or more teams' })
+  @ApiResponse({ status: 200, description: 'Document unshared successfully.' })
+  @ApiResponse({ status: 401, description: 'JWT signature pass missing or invalid.' })
+  @ApiResponse({ status: 404, description: 'Document not found.' })
+  @ApiResponse({ status: 400, description: 'Invalid team IDs.' })
+  async unshareDocument(@Param('id') id: string, @Req() req: any, @Body() body: UnshareDocumentDto) {
+    return this.documentService.unshareDocument(id, req.user.id as string, body.team_ids);
   }
 
 
@@ -69,7 +105,7 @@ export class DocumentController {
   @ApiResponse({ status: 200, description: 'Successfully retrieved results for the query.' })
   @ApiResponse({ status: 401, description: 'JWT signature pass missing or invalid.' })
   async searchDocuments(@Body() body: SearchQueryDto, @Req() req: any, @Res() res: Response) {
-    return this.documentService.pipeSearchDocuments(body.query, req.user.id as string, req, res);
+    return this.documentService.pipeSearchDocuments(body.query, body.team_id, req.user.id as string, req, res);
   }
 
   @Delete('delete/:id')

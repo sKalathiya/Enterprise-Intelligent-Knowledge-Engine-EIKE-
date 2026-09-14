@@ -8,7 +8,6 @@ from pgvector.sqlalchemy import Vector
 class DocumentChunk(Base):
     __tablename__ = "document_chunks"   
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))        # UUID for the chunk
-    user_id = Column(String(36), nullable=False, index=True)
     document_id = Column(String(36), nullable=False, index=True)
     content = Column(Text, nullable=False)
     embedding = Column(Vector(768), nullable=True) # 768 dimensions for text-embedding-3-small
