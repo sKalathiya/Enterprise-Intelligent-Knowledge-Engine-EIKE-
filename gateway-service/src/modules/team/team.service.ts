@@ -25,8 +25,28 @@ export class TeamService {
 
 
   async getTeamsByUser(userId: string) {
-    const teams = await this.teamMemberRepository.find({where: {user: {id: userId}} , relations: {team: true}});
-    return teams.map(tm => tm.team);
+    const memberships = await this.teamMemberRepository.find({
+      where: { user: { id: userId } },
+      relations: { team: { members: { user: true } } },
+    });
+    return memberships.map((row) => ({
+      id: row.team.id,
+      name: row.team.name,
+      ownerId: row.team.ownerId,
+      createdAt: row.team.createdAt,
+      updatedAt: row.team.updatedAt,
+      joinedAt: row.joinedAt,
+      members: (row.team.members ?? [])
+        .slice()
+        .sort((a, b) => a.joinedAt.getTime() - b.joinedAt.getTime())
+        .map((member) => ({
+          email: member.user.email,
+          firstName: member.user.firstName,
+          lastName: member.user.lastName,
+          joinedAt: member.joinedAt,
+          isOwner: member.user.id === row.team.ownerId,
+        })),
+    }));
   }
 
   async create(createTeamDto: CreateTeamDto, userId: string) {
