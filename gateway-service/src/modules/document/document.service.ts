@@ -99,7 +99,13 @@ export class DocumentService {
       throw new NotFoundException("User not found!")
     }
 
-    const documents = user.teams.flatMap(member => member.team.documents.map(row => row.document)).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    const documents = [
+      ...new Map(
+        user.teams
+          .flatMap((member) => member.team.documents.map((row) => row.document))
+          .map((document) => [document.id, document]),
+      ).values(),
+    ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     return documents;
   }
 

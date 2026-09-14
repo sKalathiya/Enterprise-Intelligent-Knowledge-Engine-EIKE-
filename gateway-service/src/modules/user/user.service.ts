@@ -19,22 +19,22 @@ export class UserService {
         private readonly documentProcessingQueue: Queue,
     ) {}
 
-    async deleteUser(userId: string) {
-        const user = await this.userRepository.findOne({where: {id: userId}, relations: {documents: true}})
-        if(!user){
-            throw new NotFoundException("User not found")
-        }
-        for (const document of user.documents){
-            await this.documentProcessingQueue.remove(document.id).catch((error) => undefined);
-        }
-        await firstValueFrom(this.httpService.delete(`${process.env.DOCUMENT_SERVICE_URL}/chunks/user/${userId}`, {
-            headers: { 'X-Internal-Api-Key': process.env.API_KEY as string },
-        })).catch((error: any) => {
-            throw new InternalServerErrorException("Failed to delete documents realted to the user: " + error.message)
-        });
-        await this.userRepository.delete(userId)
-        return { status: 'deleted', id: userId }
-    }
+    // async deleteUser(userId: string) {
+    //     const user = await this.userRepository.findOne({where: {id: userId}, relations: {documents: true}})
+    //     if(!user){
+    //         throw new NotFoundException("User not found")
+    //     }
+    //     for (const document of user.documents){
+    //         await this.documentProcessingQueue.remove(document.id).catch((error) => undefined);
+    //     }
+    //     await firstValueFrom(this.httpService.delete(`${process.env.DOCUMENT_SERVICE_URL}/chunks/user/${userId}`, {
+    //         headers: { 'X-Internal-Api-Key': process.env.API_KEY as string },
+    //     })).catch((error: any) => {
+    //         throw new InternalServerErrorException("Failed to delete documents realted to the user: " + error.message)
+    //     });
+    //     await this.userRepository.delete(userId)
+    //     return { status: 'deleted', id: userId }
+    // }
 
     async getUser(userId: string) {
         const user = await this.userRepository.findOne({where: {id: userId}})

@@ -221,7 +221,7 @@ async def query_documents(request: Request, queryJob: RAGQueryJob):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Client dropped the connection. Stopping generation.")
     except Exception as e:   
         raise HTTPException(
-            status = HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code = HTTP_500_INTERNAL_SERVER_ERROR,
             detail= str(e)
         ) 
 

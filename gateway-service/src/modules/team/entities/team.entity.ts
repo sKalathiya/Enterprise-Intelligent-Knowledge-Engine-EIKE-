@@ -4,12 +4,13 @@ import { User } from "../../user/entities/user.entity.js";
 import { TeamMember } from "./team-member.entity.js";
 import { TeamDocument } from "./team-document.entity.js";
 
+export const PRIVATE_TEAM_NAME = "Private";
+
 @Entity("teams")
 export class Team {
 
     @PrimaryGeneratedColumn("uuid")
     @Index({ unique: true })
-    @Exclude()
     id: string;
 
     @Column({type: "varchar" , length: 255 , nullable: false})

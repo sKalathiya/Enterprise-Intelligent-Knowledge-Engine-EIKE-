@@ -12,6 +12,9 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { User } from './modules/user/entities/user.entity.js';
 import { Document } from './modules/document/entities/document.entity.js';
+import { Team } from './modules/team/entities/team.entity.js';
+import { TeamMember } from './modules/team/entities/team-member.entity.js';
+import { TeamDocument } from './modules/team/entities/team-document.entity.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { UserModule } from './modules/user/user.module.js';
 import { DocumentModule } from './modules/document/document.module.js';
@@ -31,7 +34,7 @@ import { TeamModule } from './modules/team/team.module.js';
         username: configService.get('POSTGRES_USER'),
         password: configService.get('POSTGRES_PASSWORD'),
         database: configService.get('POSTGRES_DB'),
-        entities: [User, Document],
+        entities: [User, Document, Team, TeamMember, TeamDocument],
         synchronize: true,
         logging:['error','query'],
       }),
