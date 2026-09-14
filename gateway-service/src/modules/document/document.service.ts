@@ -1,6 +1,6 @@
 import { BadRequestException, HttpException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { EntityManager, In, Repository } from 'typeorm';
 import { Document, DocumentStatus } from './entities/document.entity.js';
 import { User } from '../user/entities/user.entity.js';
 import { InjectQueue } from '@nestjs/bullmq';
@@ -12,7 +12,7 @@ import type { Request, Response } from 'express';
 import * as fs from 'fs/promises';
 import { firstValueFrom } from 'rxjs';
 import { TeamMember } from '../team/entities/team-member.entity.js';
-import { Team } from '../team/entities/team.entity.js';
+import { PRIVATE_TEAM_NAME, Team } from '../team/entities/team.entity.js';
 import { TeamDocument } from '../team/entities/team-document.entity.js';
 import { SearchQueryDto } from './dto/search-query.dto.js';
 
@@ -114,7 +114,10 @@ export class DocumentService {
     if(!user) {
       throw new NotFoundException("User not found!")
     }
-    const team = await this.teamRepository.findOne({where: {id: team_id}, relations: {documents: {document: true} , members: {user: true}}});
+    const team = await this.teamRepository.findOne({
+      where: { id: team_id },
+      relations: { documents: { document: { user: true } }, members: { user: true } },
+    });
     if(!team) {
       throw new NotFoundException("Team not found!")
     }
@@ -187,10 +190,48 @@ export class DocumentService {
         message += ` ${team.name} - Document not shared with this team!`;
         continue;
       }
-      await this.teamDocumentRepository.delete(teamDocuments[0].id).catch((error) => undefined);
-      message += ` ${team.name} - Document unshared successfully!`;
+
+      const movedToPrivate = await this.teamDocumentRepository.manager.transaction(async (manager) => {
+        const teamDocumentRepo = manager.getRepository(TeamDocument);
+        await teamDocumentRepo.delete(teamDocuments[0].id);
+        const remaining = await teamDocumentRepo.count({ where: { document: { id: documentId } } });
+        if (remaining > 0) {
+          return false;
+        }
+        const privateTeam = await this.getOrCreatePrivateTeam(manager, userId);
+        const alreadyPrivate = await teamDocumentRepo.findOne({
+          where: { team: { id: privateTeam.id }, document: { id: documentId } },
+        });
+        if (!alreadyPrivate) {
+          await teamDocumentRepo.save(
+            teamDocumentRepo.create({ team: privateTeam, document: doc }),
+          );
+        }
+        return true;
+      });
+
+      message += movedToPrivate
+        ? ` ${team.name} - Document unshared and moved to Private.`
+        : ` ${team.name} - Document unshared successfully!`;
     }
     return { status: 'unshared', id: documentId, message: message };
+  }
+
+  private async getOrCreatePrivateTeam(manager: EntityManager, userId: string) {
+    const teamRepo = manager.getRepository(Team);
+    const memberRepo = manager.getRepository(TeamMember);
+    let privateTeam = await teamRepo.findOne({
+      where: { name: PRIVATE_TEAM_NAME, owner: { id: userId } },
+    });
+    if (!privateTeam) {
+      privateTeam = await teamRepo.save(
+        teamRepo.create({ name: PRIVATE_TEAM_NAME, owner: { id: userId } }),
+      );
+      await memberRepo.save(
+        memberRepo.create({ team: privateTeam, user: { id: userId } }),
+      );
+    }
+    return privateTeam;
   }
 
   async pipeSearchDocuments(query: string, team_id: string, user_id: string, req: Request, res: Response) {
