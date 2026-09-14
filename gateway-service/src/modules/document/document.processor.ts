@@ -43,14 +43,22 @@ export class DocumentProcessor extends WorkerHost {
             const response = this.httpService.post(documentServiceUrl, { document_id: documentId, path: path, user_id: user_id }, { headers: { 'X-Internal-Api-Key': documentServiceToken } });
             const axiosResponse = await firstValueFrom(response);
             this.logger.log(`Document ${documentId} processed successfully`);
-            await this.documentRepository.update(documentId, { status: DocumentStatus.COMPLETED });
+            await this.documentRepository.update(documentId, { status: DocumentStatus.COMPLETED, errorMessage: '' });
             return axiosResponse.data;
         }
         catch (error: any) {
             const errmsg = error.response?.data?.detail || error.message || 'An unknown error occurred';
-            console.log(errmsg);
-            this.logger.error(`Error processing document ${documentId}`, errmsg);
-            await this.documentRepository.update(documentId, { status: DocumentStatus.FAILED, errorMessage: errmsg });
+            const maxAttempts = job.opts.attempts ?? 3;
+            const attempt = job.attemptsMade + 1;
+            const lastTry = attempt >= maxAttempts;
+            this.logger.error(
+                `Error processing document ${documentId} (attempt ${attempt}/${maxAttempts})`,
+                errmsg,
+            );
+            await this.documentRepository.update(documentId, {
+                errorMessage: errmsg,
+                status: lastTry ? DocumentStatus.FAILED : DocumentStatus.PROCESSING,
+            });
             throw error;
         }
     }

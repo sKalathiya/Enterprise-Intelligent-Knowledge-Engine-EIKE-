@@ -12,10 +12,13 @@ load_dotenv()
 
 class GenerativeService:
     def __init__(self):
-        if not os.getenv("GEMINI_API_KEY"):
-            raise ValueError("GEMINI_API_KEY is not set")
-        self.client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-        self.model_name = "gemini-3.6-flash"
+        query_key = os.getenv("GEMINI_CONTENT_GENERATE_API_KEY")
+        if not query_key:
+            raise ValueError("GEMINI_CONTENT_GENERATE_API_KEY is not set")
+        self.client = genai.Client(api_key=query_key)
+        self.model_name = os.getenv("GEMINI_GENERATIVE_MODEL")
+        if not self.model_name:
+            raise ValueError("GEMINI_GENERATIVE_MODEL is not set")
         self.system_prompt = """
                     You are an Enterprise Knowledge Expert.
                     Answer in formal, complete sentences. Write a short professional briefing

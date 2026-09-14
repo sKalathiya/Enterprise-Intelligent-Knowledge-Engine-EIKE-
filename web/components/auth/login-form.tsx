@@ -4,7 +4,10 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { fieldClassName } from "@/components/auth/fields";
 import { login } from "@/lib/api";
+import { assignLoginAvatar } from "@/lib/profile-avatar";
+import { notify } from "@/lib/stores/toast-store";
 
 function errorMessage(payload: unknown): string {
   if (payload && typeof payload === "object") {
@@ -35,14 +38,20 @@ export function LoginForm() {
       const response = await login(email, password);
       const data: unknown = await response.json().catch(() => null);
       if (!response.ok) {
-        setError(errorMessage(data));
+        const message = errorMessage(data);
+        setError(message);
+        notify.error("Sign in failed", message);
         return;
       }
 
+      assignLoginAvatar();
+      notify.success("Signed in", "Welcome back.");
       router.push("/documents");
       router.refresh();
     } catch {
-      setError("Could not reach the login service. Try again.");
+      const message = "Could not sign you in. Try again.";
+      setError(message);
+      notify.error("Sign in failed", message);
     } finally {
       setPending(false);
     }
@@ -50,15 +59,15 @@ export function LoginForm() {
 
   return (
     <>
-      <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-        EIKE
+      <p className="animate-fade-up text-xs font-medium tracking-wide text-muted-foreground uppercase">
+        Welcome back
       </p>
-      <h1 className="mt-2 text-2xl font-semibold tracking-tight">Sign in</h1>
-      <p className="mt-2 text-sm text-muted-foreground">
-        Use your workspace email. The session is stored in an HttpOnly cookie.
+      <h1 className="animate-fade-up animate-delay-1 mt-2 text-2xl font-semibold tracking-tight">Sign in</h1>
+      <p className="animate-fade-up animate-delay-2 mt-2 text-sm leading-6 text-muted-foreground">
+        Sign in with the email you used to create your account.
       </p>
 
-      <form className="mt-8 flex flex-col gap-4" onSubmit={onSubmit}>
+      <form className="animate-fade-up animate-delay-3 mt-8 flex flex-col gap-4" onSubmit={onSubmit}>
         <label className="flex flex-col gap-1.5 text-sm font-medium">
           Email
           <input
@@ -69,7 +78,7 @@ export function LoginForm() {
             maxLength={255}
             value={email}
             onChange={(event) => setEmail(event.target.value)}
-            className="h-9 rounded-lg border border-input bg-background px-3 text-sm font-normal outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+            className={fieldClassName}
           />
         </label>
 
@@ -84,17 +93,17 @@ export function LoginForm() {
             maxLength={255}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
-            className="h-9 rounded-lg border border-input bg-background px-3 text-sm font-normal outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+            className={fieldClassName}
           />
         </label>
 
         {error ? (
-          <p className="text-sm text-destructive" role="alert">
+          <div className="animate-shake rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive" role="alert">
             {error}
-          </p>
+          </div>
         ) : null}
 
-        <Button type="submit" className="mt-2 h-9 w-full" disabled={pending}>
+        <Button type="submit" className="mt-1 h-10 w-full" disabled={pending}>
           {pending ? "Signing in…" : "Sign in"}
         </Button>
       </form>

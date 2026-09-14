@@ -1,4 +1,5 @@
-import { Controller, Get, Post, UseInterceptors, Req, BadRequestException, UploadedFile, ClassSerializerInterceptor, Sse, Body, Delete, Param } from '@nestjs/common';
+import { Controller, Get, Post, UseInterceptors, Req, Res, BadRequestException, UploadedFile, ClassSerializerInterceptor, Body, Delete, Param } from '@nestjs/common';
+import type { Response } from 'express';
 import { DocumentService } from './document.service.js';
 import { CreateDocumentDto } from './dto/create-document.dto.js';
 import { SearchQueryDto } from './dto/search-query.dto.js';
@@ -62,14 +63,13 @@ export class DocumentController {
 
 
   @Post('query')
-  @Sse()
   @ApiBearerAuth()
   @ApiBody({ type: SearchQueryDto })
   @ApiOperation({ summary: 'Search documents for query and stream the results' })
   @ApiResponse({ status: 200, description: 'Successfully retrieved results for the query.' })
   @ApiResponse({ status: 401, description: 'JWT signature pass missing or invalid.' })
-  async searchDocuments(@Body() body: SearchQueryDto, @Req() req: any) {
-    return this.documentService.searchDocuments(body.query, req.user.id as string);
+  async searchDocuments(@Body() body: SearchQueryDto, @Req() req: any, @Res() res: Response) {
+    return this.documentService.pipeSearchDocuments(body.query, req.user.id as string, req, res);
   }
 
   @Delete('delete/:id')
@@ -92,4 +92,6 @@ export class DocumentController {
   async retryDocument(@Param('id') id: string, @Req() req: any) {
     return this.documentService.retryDocument(id, req.user.id as string);
   }
+
+  
 }

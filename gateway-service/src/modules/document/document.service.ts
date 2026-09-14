@@ -7,8 +7,8 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import path from 'path';
 import { HttpService } from '@nestjs/axios';
-import { Observable } from 'rxjs';
 import { Readable } from 'stream';
+import type { Request, Response } from 'express';
 import * as fs from 'fs/promises';
 import { firstValueFrom } from 'rxjs';
 
@@ -67,68 +67,47 @@ export class DocumentService {
     return documents;
   }
 
+  // read tommorro
 
-  async searchDocuments(query: string, user_id: string) {
-    const internalAPIKey = process.env.API_KEY;
-    
-    const response = await this.httpService.axiosRef.post(`${process.env.DOCUMENT_SERVICE_URL}/query`, 
-      {query: query, user_id: user_id},
+  async pipeSearchDocuments(query: string, user_id: string, req: Request, res: Response) {
+    const response = await this.httpService.axiosRef.post(
+      `${process.env.DOCUMENT_SERVICE_URL}/query`,
+      { query, user_id },
       {
         headers: {
-          'X-Internal-Api-Key': internalAPIKey,
+          'X-Internal-Api-Key': process.env.API_KEY,
           'Content-Type': 'application/json',
         },
         responseType: 'stream',
-      }
+        timeout: 0,
+      },
     );
 
-    
+    const stream = response.data as Readable;
+    res.status(response.status);
+    const contentType = response.headers['content-type'];
+    res.setHeader('Content-Type', typeof contentType === 'string' ? contentType : 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
 
-    return new Observable(subscriber => {
-      const stream = response.data as Readable;
-      let buffer = '';
-
-      const emitFrame = (frame: string) => {
-        const line = frame.trim();
-        if(!line.startsWith('data:')) return;
-        const payload = line.slice(5).trim();
-        const parsed = JSON.parse(payload);
-        if(!subscriber.closed) {
-          subscriber.next({ data: parsed });
-        }
-      };
-
-      const onData = (chunk: any) => {
-        buffer += chunk.toString();
-        let parts = buffer.split('\n\n');
-        buffer = parts.pop() || '';
-        for (const part of parts){
-          emitFrame(part);
-        }
-      };
-
-      const onEnd = () => {
-        if(buffer.trim()) emitFrame(buffer);
-        if(!subscriber.closed) {
-          subscriber.complete();
-        }
-      };
-      const onError = (error: any) => {
-        subscriber.error(error);
-      };
-      stream.on('data', onData);
-      stream.on('end', onEnd);
-      stream.on('error', onError);
-      stream.on('close', onEnd);
-
-      return () => {
-        stream.off('data', onData);
-        stream.off('end', onEnd);
-        stream.off('error', onError);
-        stream.off('close', onEnd);
+    await new Promise<void>((resolve, reject) => {
+      const abort = () => {
         stream.destroy();
       };
-    })  ;
+      req.once('close', abort);
+      stream.once('error', (error) => {
+        req.off('close', abort);
+        if (!res.writableEnded) res.end();
+        reject(error);
+      });
+      res.once('finish', () => {
+        req.off('close', abort);
+        resolve();
+      });
+      stream.pipe(res);
+    });
   }
 
 

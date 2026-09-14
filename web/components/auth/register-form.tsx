@@ -4,10 +4,9 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { fieldClassName } from "@/components/auth/fields";
 import { register } from "@/lib/api";
-
-const inputClassName =
-  "h-9 rounded-lg border border-input bg-background px-3 text-sm font-normal outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
+import { notify } from "@/lib/stores/toast-store";
 
 function errorMessage(payload: unknown): string {
   if (payload && typeof payload === "object") {
@@ -40,14 +39,19 @@ export function RegisterForm() {
       const response = await register(firstName, lastName, email, password);
       const data: unknown = await response.json().catch(() => null);
       if (!response.ok) {
-        setError(errorMessage(data));
+        const message = errorMessage(data);
+        setError(message);
+        notify.error("Registration failed", message);
         return;
       }
 
+      notify.success("Account created", "Sign in to start adding files.");
       router.push("/login");
       router.refresh();
     } catch {
-      setError("Could not reach the registration service. Try again.");
+      const message = "Could not create your account. Try again.";
+      setError(message);
+      notify.error("Registration failed", message);
     } finally {
       setPending(false);
     }
@@ -55,15 +59,15 @@ export function RegisterForm() {
 
   return (
     <>
-      <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-        EIKE
+      <p className="animate-fade-up text-xs font-medium tracking-wide text-muted-foreground uppercase">
+        Join Folio
       </p>
-      <h1 className="mt-2 text-2xl font-semibold tracking-tight">Create an account</h1>
-      <p className="mt-2 text-sm text-muted-foreground">
-        Register a workspace user, then sign in. No session is created until login.
+      <h1 className="animate-fade-up animate-delay-1 mt-2 text-2xl font-semibold tracking-tight">Create an account</h1>
+      <p className="animate-fade-up animate-delay-2 mt-2 text-sm leading-6 text-muted-foreground">
+        Create your account, then sign in to start adding files.
       </p>
 
-      <form className="mt-8 flex flex-col gap-4" onSubmit={onSubmit}>
+      <form className="animate-fade-up animate-delay-3 mt-8 flex flex-col gap-4" onSubmit={onSubmit}>
         <div className="grid grid-cols-2 gap-3">
           <label className="flex flex-col gap-1.5 text-sm font-medium">
             First name
@@ -74,7 +78,7 @@ export function RegisterForm() {
               maxLength={255}
               value={firstName}
               onChange={(event) => setFirstName(event.target.value)}
-              className={inputClassName}
+              className={fieldClassName}
             />
           </label>
           <label className="flex flex-col gap-1.5 text-sm font-medium">
@@ -86,7 +90,7 @@ export function RegisterForm() {
               maxLength={255}
               value={lastName}
               onChange={(event) => setLastName(event.target.value)}
-              className={inputClassName}
+              className={fieldClassName}
             />
           </label>
         </div>
@@ -101,7 +105,7 @@ export function RegisterForm() {
             maxLength={255}
             value={email}
             onChange={(event) => setEmail(event.target.value)}
-            className={inputClassName}
+            className={fieldClassName}
           />
         </label>
 
@@ -118,7 +122,7 @@ export function RegisterForm() {
             title="At least 8 characters, with one uppercase letter, one lowercase letter, and one number"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
-            className={inputClassName}
+            className={fieldClassName}
           />
         </label>
         <p className="-mt-2 text-xs text-muted-foreground">
@@ -126,12 +130,12 @@ export function RegisterForm() {
         </p>
 
         {error ? (
-          <p className="text-sm text-destructive" role="alert">
+          <div className="animate-shake rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive" role="alert">
             {error}
-          </p>
+          </div>
         ) : null}
 
-        <Button type="submit" className="mt-2 h-9 w-full" disabled={pending}>
+        <Button type="submit" className="mt-1 h-10 w-full" disabled={pending}>
           {pending ? "Creating account…" : "Create account"}
         </Button>
       </form>

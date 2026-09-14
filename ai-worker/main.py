@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from core.embeddings import EmbeddingService
 from core.document_chunk import DocumentChunk
 from core.generativeService import GenerativeService
+from starlette.datastructures import MutableHeaders
 from starlette.responses import StreamingResponse
 
 
@@ -67,23 +68,33 @@ _allowed_hosts = [
 ]
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=_allowed_hosts)
 
-# timing middleware
-@app.middleware("http")
-async def add_timing_header(request: Request, call_next):
-    start = time.time()
-    response = await call_next(request)
-    duration = time.time() - start
-    response.headers["X-Process-Time"] = str(duration)
-    return response
+#learn
+class PassThroughLogMiddleware:
+    def __init__(self, app):
+        self.app = app
 
-# Logging middleware
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    print(f"{request.method} {request.url}")
-    response = await call_next(request)
-    print(f"Status: {response.status_code}")
-    return response
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
 
+        print(f"{scope.get('method')} {scope.get('path')}")
+        started = time.time()
+        status_code = 0
+
+        async def send_wrapper(message):
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message["status"]
+                headers = MutableHeaders(scope=message)
+                headers.append("X-Process-Time", f"{time.time() - started:.4f}")
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+        print(f"Status: {status_code}")
+
+
+app.add_middleware(PassThroughLogMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[os.getenv("AI_WORKER_ALLOWED_ORIGINS") or "*"],
@@ -195,7 +206,15 @@ async def query_documents(request: Request, queryJob: RAGQueryJob):
             yield f"data:{json.dumps({'type':'end'})}\n\n"
 
 
-        return StreamingResponse(event_stream(), media_type="text/event-stream")
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     except asyncio.CancelledError:
         print("Client dropped the connection. Stopping generation.")

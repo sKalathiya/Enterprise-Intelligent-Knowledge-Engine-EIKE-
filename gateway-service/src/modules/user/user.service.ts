@@ -7,6 +7,7 @@ import { firstValueFrom } from 'rxjs';
 import { Queue } from 'bullmq';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Document } from '../document/entities/document.entity.js';
+import { UpdateUserDto } from './dto/update-user.dto.js';
 
 @Injectable()
 export class UserService {
@@ -33,5 +34,22 @@ export class UserService {
         });
         await this.userRepository.delete(userId)
         return { status: 'deleted', id: userId }
+    }
+
+    async getUser(userId: string) {
+        const user = await this.userRepository.findOne({where: {id: userId}})
+        if(!user){
+            throw new NotFoundException("User not found")
+        }
+        return user
+    }
+
+    async updateUser(userId: string, updateUserDto: UpdateUserDto) {
+        const user = await this.userRepository.findOne({where: {id: userId}})
+        if(!user){
+            throw new NotFoundException("User not found")
+        }
+        await this.userRepository.update(userId, updateUserDto)
+        return { status: 'updated', id: userId }
     }
 }

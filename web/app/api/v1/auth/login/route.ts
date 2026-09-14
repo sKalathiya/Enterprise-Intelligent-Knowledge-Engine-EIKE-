@@ -25,7 +25,7 @@ export async function POST(request: Request) {
       sameSite: "lax",
     });
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true }, { status: 200 });
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

@@ -122,7 +122,7 @@ Enterprise-Intelligent-Knowledge-Engine-EIKE-/
 cp .env.example .env
 ```
 
-Fill in `POSTGRES_PASSWORD`, `JWT_SECRET` (≥ 32 characters), `API_KEY`, `LLAMA_PARSE_API_KEY`, and `GEMINI_API_KEY`. Do not commit `.env`.
+Fill in `POSTGRES_PASSWORD`, `JWT_SECRET` (≥ 32 characters), `API_KEY`, `LLAMA_PARSE_API_KEY`, `GEMINI_API_KEY`, and `GEMINI_QUERY_API_KEY`. Do not commit `.env`.
 
 `.env` holds secrets and the gateway publish port. Hostnames in `.env` may be `localhost` for host-side tools. Compose **overrides** in-network values:
 
