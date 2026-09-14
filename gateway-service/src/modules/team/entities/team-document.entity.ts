@@ -1,4 +1,5 @@
 import { CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from "typeorm";
+import type { Relation } from "typeorm";
 import { Team } from "./team.entity.js";
 import { Document } from "../../document/entities/document.entity.js";
 
@@ -10,12 +11,12 @@ export class TeamDocument {
     
     @ManyToOne(() => Team, (team: Team) => team.documents, { onDelete: 'CASCADE' })
     @JoinColumn({ name: 'teamId' })
-    team: Team;
+    team: Relation<Team>;
 
     @ManyToOne(() => Document, (document: Document) => document.teams, { onDelete: 'CASCADE' })
     @JoinColumn({ name: 'documentId' })
     @Index()
-    document: Document;
+    document: Relation<Document>;
 
     @CreateDateColumn({type: "timestamp", nullable: false})
     sharedAt: Date

@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, CreateDateColumn, UpdateDateColumn, OneToMany, JoinColumn, Index } from "typeorm";
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, CreateDateColumn, UpdateDateColumn, OneToMany, JoinColumn, Index, RelationId } from "typeorm";
 import type { Relation } from "typeorm";
 import { User } from "../../user/entities/user.entity.js";
 import { Exclude } from "class-transformer";
@@ -31,12 +31,15 @@ export class Document{
     errorMessage: string
 
     @OneToMany(() => TeamDocument, (teamDocument: TeamDocument) => teamDocument.document)
-    teams: TeamDocument[]
+    teams: Relation<TeamDocument[]>
 
     @ManyToOne(() => User, (user: User) => user.documents, { onDelete: 'CASCADE' })
     @JoinColumn({ name: 'userId' })
     @Index()
-    user: User;
+    user: Relation<User>;
+
+    @RelationId((document: Document) => document.user)
+    userId: string;
 
     @CreateDateColumn({type: "timestamp", nullable: false})
     createdAt: Date

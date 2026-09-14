@@ -27,13 +27,13 @@ export class User{
     passwordHash: string
 
     @OneToMany(()=> TeamMember, (member: TeamMember) => member.user)
-    teams: TeamMember[]
+    teams: Relation<TeamMember[]>
 
     @OneToMany(() => Document, (document: Document) => document.user)
-    documents: Document[]
+    documents: Relation<Document[]>
 
     @OneToMany(() => Team, (team: Team) => team.owner)
-    ownedTeams: Team[]
+    ownedTeams: Relation<Team[]>
 
     @CreateDateColumn({type: "timestamp", nullable: false})
     createdAt: Date

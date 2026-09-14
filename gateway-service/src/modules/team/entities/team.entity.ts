@@ -1,5 +1,5 @@
-import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, UpdateDateColumn, PrimaryGeneratedColumn, OneToMany } from "typeorm";
-import { Exclude } from "class-transformer";
+import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, UpdateDateColumn, PrimaryGeneratedColumn, OneToMany, RelationId } from "typeorm";
+import type { Relation } from "typeorm";
 import { User } from "../../user/entities/user.entity.js";
 import { TeamMember } from "./team-member.entity.js";
 import { TeamDocument } from "./team-document.entity.js";
@@ -19,13 +19,16 @@ export class Team {
     @ManyToOne(() => User, (user: User) => user.ownedTeams, { onDelete: 'RESTRICT' })
     @JoinColumn({ name: 'ownerId' })
     @Index()
-    owner: User;
+    owner: Relation<User>;
+
+    @RelationId((team: Team) => team.owner)
+    ownerId: string;
 
     @OneToMany(() => TeamMember, (member: TeamMember) => member.team)
-    members: TeamMember[]
+    members: Relation<TeamMember[]>
 
     @OneToMany(() => TeamDocument, (document: TeamDocument) => document.team)
-    documents: TeamDocument[]
+    documents: Relation<TeamDocument[]>
 
     @CreateDateColumn({type: "timestamp", nullable: false})
     createdAt: Date
