@@ -24,3 +24,6 @@ Thumbs.db
 
 # User-uploaded documents
 uploads/
+
+# Next.js app is local-only and is not published with this repository
+web/
