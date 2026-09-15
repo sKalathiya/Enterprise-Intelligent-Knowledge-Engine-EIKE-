@@ -28,7 +28,7 @@ export class TeamService {
   async getTeamsByUser(userId: string) {
     const memberships = await this.teamMemberRepository.find({
       where: { user: { id: userId } },
-      relations: { team: { members: { user: true } } },
+      relations: { team: { members: { user: true }, owner: true } },
     });
     return memberships.map(row => row.team)
   }
@@ -86,7 +86,7 @@ export class TeamService {
   }
   
   async changeOwner(id: string, changeOwnerDto: ChangeOwnerDto, userId: string) {
-    const team = await this.teamRepository.findOne({where : {id: id , ownerId: userId}})
+    const team = await this.teamRepository.findOne({where : {id: id , owner: {id: userId}}})
     const oldOwner = await this.userRepository.findOne({where: {id: userId}})
     if( !oldOwner ){
       throw new NotFoundException('Old Owner not found');
@@ -127,7 +127,7 @@ export class TeamService {
     let documents: TeamDocument[] = []
     const teamDocumentRepo = manager.getRepository(TeamDocument)
     if(user_id){
-       documents = await teamDocumentRepo.find({where: {team: {id: team_id } , document: { userId: user_id}}, relations: {document: {user: true, teams: true}}})
+       documents = await teamDocumentRepo.find({where: {team: {id: team_id } , document: { user: {id: user_id}}}, relations: {document: {user: true, teams: true}}})
     }else{
      documents = await teamDocumentRepo.find({where: {team: {id: team_id } }, relations: {document: {user: true, teams: true}}})
     }
@@ -213,5 +213,27 @@ export class TeamService {
     });
 
     return {status: 'removed', email: member.user.email};
+  }
+
+  async leaveTeam(id: string, user_id: string)
+  {
+    const team = await this.teamRepository.findOne({
+      where: {id: id, members: {user: {id: user_id}}},
+      relations: { owner: true },
+    });
+    if(!team) {
+      throw new NotFoundException('Team not found');
+    }
+    if(team.name === PRIVATE_TEAM_NAME) {
+      throw new BadRequestException('Private team cannot have members removed');
+    }
+    if(team.ownerId === user_id) {
+      throw new BadRequestException('You cannot leave a team you own. Transfer ownership first.');
+    }
+    await this.teamRepository.manager.transaction(async (manager) => {
+      await this.removeDocumentsFromTeam(manager, id, user_id)
+      await manager.getRepository(TeamMember).delete({user:{ id: user_id},team:{id: team.id}});
+    });
+    return {status: 'left', id: team.id};
   }
 }

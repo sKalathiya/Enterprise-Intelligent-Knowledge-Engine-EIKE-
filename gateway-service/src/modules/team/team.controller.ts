@@ -92,4 +92,15 @@ export class TeamController {
   async changeOwnerOfTeam(@Param('id') id: string, @Body() changeOwnerDto: ChangeOwnerDto, @Req() req: any) {
     return this.teamService.changeOwner(id, changeOwnerDto, req.user.id as string);
   }
+
+  @Post(':id/leave')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Leave a team' })
+  @ApiResponse({ status: 200, description: 'Left team successfully.' })
+  @ApiResponse({ status: 401, description: 'JWT signature pass missing or invalid.' })
+  @ApiResponse({ status: 404, description: 'Team not found.' })
+  @ApiResponse({ status: 400, description: 'Private team cannot have members removed.' })
+  async leaveTeam(@Param('id') id: string, @Req() req: any) {
+    return this.teamService.leaveTeam(id, req.user.id as string);
+  }
 }
