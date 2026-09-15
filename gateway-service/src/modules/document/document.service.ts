@@ -1,4 +1,4 @@
-import { BadRequestException, HttpException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, HttpException, Inject, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, Repository } from 'typeorm';
 import { Document, DocumentStatus } from './entities/document.entity.js';
@@ -15,6 +15,11 @@ import { TeamMember } from '../team/entities/team-member.entity.js';
 import { PRIVATE_TEAM_NAME, Team } from '../team/entities/team.entity.js';
 import { TeamDocument } from '../team/entities/team-document.entity.js';
 import { SearchQueryDto } from './dto/search-query.dto.js';
+import { S3Service } from './s3Service.js';
+import { PresignDocumentDto } from './dto/presign-document.js';
+import { randomUUID } from 'crypto';
+import { HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 
 @Injectable()
@@ -32,15 +37,13 @@ export class DocumentService {
     @InjectQueue('document-processing-queue')
     private readonly documentProcessingQueue: Queue,
     private readonly httpService: HttpService,
+    private readonly s3Service: S3Service,  
   ) {}
 
 
-  async uploadDocument(file: any, user_id: string, team_id: string) {
-
-    if(!file) {
-      throw new BadRequestException("File is required!")
-    }
-
+  async presignDocument(dto: PresignDocumentDto, user_id: string) {
+    const client = this.s3Service.requireClient();
+    const { team_id, fileName, contentType, contentLength } = dto;
     const user = await this.userRepository.findOneBy({id: user_id});
     if(!user) {
       throw new NotFoundException("Authorized User Context not found!")
@@ -59,28 +62,90 @@ export class DocumentService {
     if (!isMember) {
       throw new BadRequestException("You are not a member of this group.");
     }
-      
-    const newDocument = this.documentRepository.create({
-      fileName: file.originalname,
-      storageUrl: path.join(process.env.SHARED_UPLOAD || '', file.filename), // Maps to our local hot-reload file workspace path
-      status: DocumentStatus.PENDING,
+
+    const basename = path.basename(fileName);
+    if(!basename || basename.includes('..') || basename !== dto.fileName) {
+      throw new BadRequestException("Invalid file name!")
+    }
+
+    const id = randomUUID();
+    const key = `users/${user_id}/documents/${id}/${basename}`;
+
+    const savedDocument = await this.documentRepository.manager.transaction(async (manager) => {
+      const documentRepo = manager.getRepository(Document);
+      const teamDocumentRepo = manager.getRepository(TeamDocument);
+      const newDocument = await documentRepo.save(documentRepo.create({
+        id,
+        fileName: basename,
+        storageUrl: key,
+        status: DocumentStatus.UPLOADING,
+        user: user,
+      }));
+      const teamDocument = await teamDocumentRepo.save(teamDocumentRepo.create({
+        team: team,
+        document: newDocument,
+      }));
+      return newDocument;
     });
 
-    newDocument.user = user;
-    const savedDocument = await this.documentRepository.save(newDocument)
-      const teamDocument = this.teamDocumentRepository.create({
-        team: team,
-        document: savedDocument,
-      });
-      await this.teamDocumentRepository.save(teamDocument);
-    
-    console.log("Adding document to queue", savedDocument.id);
+    const uploadUrl = await getSignedUrl(client, new PutObjectCommand({
+      Bucket: this.s3Service.bucket,
+      Key: key,
+      ContentType: contentType,
+      ContentLength: contentLength,
+    }), { expiresIn: 300 });
+
+
+    return {
+      id: savedDocument.id,
+      uploadUrl: uploadUrl,
+      bucket: this.s3Service.bucket,
+      key: key,
+      headers: {
+        'Content-Type': contentType,
+        'Content-Length': contentLength,
+      },
+    };
+  }
+
+  async completeDocument(documentId: string, user_id: string) {
+    const client = this.s3Service.requireClient();
+    const document = await this.documentRepository.findOneBy({id: documentId, user: {id: user_id}});
+    if(!document) {
+      throw new NotFoundException("Document not found!")
+    }
+    if(document.status !== DocumentStatus.UPLOADING) {
+      throw new BadRequestException("Document is not uploading!")
+    }
+    if(!document.storageUrl?.startsWith(`users/${user_id}/documents/`)) {
+      throw new BadRequestException("Invalid document storage URL!")
+    }
+    try{
+      const head = await client.send(new HeadObjectCommand({
+        Bucket: this.s3Service.bucket,
+        Key: document.storageUrl,
+      }));
+      const size = head.ContentLength ?? 0;
+      if (size < 1 || size > 10 * 1024 * 1024) {
+        throw new BadRequestException('Invalid object size');
+      }
+      const type = head.ContentType ?? '';
+      if (type && type !== 'application/pdf' && type !== 'text/plain') {
+        throw new BadRequestException('Invalid object type');
+      }
+      document.status = DocumentStatus.PENDING;
+      await this.documentRepository.save(document);
+    } catch(error) {
+      throw new BadRequestException("Document not found in S3!")
+    }
+
     await this.documentProcessingQueue.add('document-processing', {
-      documentId: savedDocument.id,
-      path: savedDocument.storageUrl,
+      documentId: documentId,
+      bucket: this.s3Service.bucket,
+      key: document.storageUrl,
     },
     {
-      jobId: savedDocument.id,
+      jobId: documentId,
       removeOnComplete: true,
       attempts: 3,
       backoff: {
@@ -88,9 +153,69 @@ export class DocumentService {
         delay: 5000,
       },
     });
-
-    return savedDocument;
+    return { status: 'queued', id: documentId };
   }
+
+  // async uploadDocument(file: any, user_id: string, team_id: string) {
+
+  //   if(!file) {
+  //     throw new BadRequestException("File is required!")
+  //   }
+
+  //   const user = await this.userRepository.findOneBy({id: user_id});
+  //   if(!user) {
+  //     throw new NotFoundException("Authorized User Context not found!")
+  //   }
+
+  //   const team = await this.teamRepository.findOne({
+  //         where: { id: team_id },
+  //         relations: { members: { user: true } },
+  //       })
+  //   if (!team) {
+  //     throw new NotFoundException("Team not found!")
+  //   }
+
+  //   const isMember = team.members.some((member) => member.user.id === user_id)
+      
+  //   if (!isMember) {
+  //     throw new BadRequestException("You are not a member of this group.");
+  //   }
+
+  //   const newDocument = this.documentRepository.create({
+  //     fileName: file.originalname,
+  //     storageUrl: path.join(process.env.SHARED_UPLOAD || '', file.filename), // Maps to our local hot-reload file workspace path
+  //     status: DocumentStatus.PENDING,
+  //   });
+  //   newDocument.user = user;
+  //   const savedDocument = await this.documentRepository.manager.transaction(async (manager): Promise<Document> => {
+  //     const documentRepo = manager.getRepository(Document);
+  //     const teamDocumentRepo = manager.getRepository(TeamDocument);
+  //     const savedDocument = await documentRepo.save(newDocument)
+  //       const teamDocument = teamDocumentRepo.create({
+  //         team: team,
+  //         document: savedDocument,
+  //       });
+  //       await teamDocumentRepo.save(teamDocument);
+  //       return savedDocument;
+  // });
+
+  // console.log("Adding document to queue", savedDocument.id);
+  //   await this.documentProcessingQueue.add('document-processing', {
+  //     documentId: savedDocument.id,
+  //     path: savedDocument.storageUrl,
+  //   },
+  //   {
+  //     jobId: savedDocument.id,
+  //     removeOnComplete: true,
+  //     attempts: 3,
+  //     backoff: {
+  //       type: 'exponential',
+  //       delay: 5000,
+  //     },
+  //   });
+  
+  //   return savedDocument;
+  // }
 
 
   async getUserDocuments(user_id: string) {
@@ -110,22 +235,13 @@ export class DocumentService {
   }
 
   async getTeamDocuments(team_id: string, user_id: string) {
-    const user = await this.userRepository.findOneBy({id: user_id});
-    if(!user) {
-      throw new NotFoundException("User not found!")
-    }
     const team = await this.teamRepository.findOne({
-      where: { id: team_id },
-      relations: { documents: { document: { user: true } }, members: { user: true } },
+      where: { id: team_id , members: {user: {id: user_id}} },
+      relations: { documents: { document: { user: true } } },
     });
     if(!team) {
       throw new NotFoundException("Team not found!")
     }
-    const isMember = team.members.some((member) => member.user.id === user_id)
-    if(!isMember) {
-      throw new BadRequestException("You are not a member of this group!")
-    } 
-
     return team.documents.map(row => row.document);
   }
 
@@ -134,32 +250,29 @@ export class DocumentService {
     if(!doc) {
       throw new NotFoundException("Document not found!")
     }
-    const teams = await this.teamRepository.find({where: {id: In(teamIds)}, relations: {members: {user: true}}});
+    const teams = await this.teamRepository.find({where: {id: In(teamIds), members: {user: {id: userId}}}});
     if(teams.length === 0){
       throw new BadRequestException("No teams found!")
     }
     if(teams.length !== teamIds.length) {
       throw new BadRequestException("Invalid team IDs!")
     }
+    if(teams.some((team) => team.name === PRIVATE_TEAM_NAME)) {
+      throw new BadRequestException("Cannot Share Document with Private Team!")
+    }
     let message: string = "Shared Document Status:";
-
     
     for(const team of teams) {
-      const isMember = team.members.some((member) => member.user.id === userId)
-      if(!isMember) {
-        message += ` ${team.name} - You are not a member of this group!`;
-        continue;
-      }
-      const teamDocuments = await this.teamDocumentRepository.find({where: {document: {id: documentId}, team: {id: team.id}}});
-      if(teamDocuments.length > 0) {
+      const teamDocument = await this.teamDocumentRepository.findOne({where: {document: {id: documentId}, team: {id: team.id}}});
+      if(teamDocument) {
         message += ` ${team.name} - Document already shared with this team!`;
         continue;
       }
-      const teamDocument = this.teamDocumentRepository.create({
+      const teamDoc = this.teamDocumentRepository.create({
         team: team,
         document: doc,
       });
-      await this.teamDocumentRepository.save(teamDocument);
+      await this.teamDocumentRepository.save(teamDoc);
       message += ` ${team.name} - Document shared successfully!`;
     }
     return { status: 'shared', id: documentId, message: message };
@@ -171,48 +284,34 @@ export class DocumentService {
       throw new NotFoundException("Document not found!")
     }
   
-    const teams = await this.teamRepository.find({where: {id: In(teamIds)}, relations: {members: {user: true}}});
+    const teams = await this.teamRepository.find({where: {id: In(teamIds), members: {user: {id: userId}}}});
     if(teams.length === 0){
       throw new BadRequestException("No teams found!")
     }
     if(teams.length !== teamIds.length) {
       throw new BadRequestException("Invalid team IDs!")
     }
+    if(teams.some((team) => team.name === PRIVATE_TEAM_NAME)) {
+      throw new BadRequestException("Private team cannot be unshared!")
+    }
     let message: string = "Unshared Document Status:";
     for(const team of teams) {
-      const isMember = team.members.some((member) => member.user.id === userId)
-      if(!isMember) {
-        message += ` ${team.name} - You are not a member of this group!`;
-        continue;
-      }
-      const teamDocuments = await this.teamDocumentRepository.find({where: {document: {id: documentId}, team: {id: team.id}}});
-      if(teamDocuments.length === 0) {
+      const teamDocument = await this.teamDocumentRepository.findOne({where: {document: {id: documentId}, team: {id: team.id}}, relations: {document: {teams: true}}});
+      if(!teamDocument) {
         message += ` ${team.name} - Document not shared with this team!`;
         continue;
       }
-
-      const movedToPrivate = await this.teamDocumentRepository.manager.transaction(async (manager) => {
+      
+      await this.documentRepository.manager.transaction(async (manager) => {
+        const remaining = teamDocument.document.teams.length;
         const teamDocumentRepo = manager.getRepository(TeamDocument);
-        await teamDocumentRepo.delete(teamDocuments[0].id);
-        const remaining = await teamDocumentRepo.count({ where: { document: { id: documentId } } });
-        if (remaining > 0) {
-          return false;
+        if (remaining === 1) {
+          const privateTeam = await this.getOrCreatePrivateTeam(manager, userId);
+          await teamDocumentRepo.save(teamDocumentRepo.create({team: privateTeam, document: teamDocument.document}));
         }
-        const privateTeam = await this.getOrCreatePrivateTeam(manager, userId);
-        const alreadyPrivate = await teamDocumentRepo.findOne({
-          where: { team: { id: privateTeam.id }, document: { id: documentId } },
-        });
-        if (!alreadyPrivate) {
-          await teamDocumentRepo.save(
-            teamDocumentRepo.create({ team: privateTeam, document: doc }),
-          );
-        }
-        return true;
+        await teamDocumentRepo.delete(teamDocument.id);
       });
-
-      message += movedToPrivate
-        ? ` ${team.name} - Document unshared and moved to Private.`
-        : ` ${team.name} - Document unshared successfully!`;
+      message += ` ${team.name} - Document unshared successfully!`;
     }
     return { status: 'unshared', id: documentId, message: message };
   }
@@ -235,10 +334,6 @@ export class DocumentService {
   }
 
   async pipeSearchDocuments(query: string, team_id: string, user_id: string, req: Request, res: Response) {
-    const user = await this.userRepository.findOneBy({id: user_id});
-    if(!user) {
-      throw new NotFoundException("User not found!") 
-    }
     const isMember = await this.teamRepository.findOne({where: {id: team_id, members: {user: {id: user_id}}}}).then(team => team ? true : false);
     if(!isMember) {
       throw new BadRequestException("You are not a member of this group!")
@@ -293,13 +388,12 @@ export class DocumentService {
 
   async deleteDocument(documentId: string, userId: string) {
 
-    const doc = await this.documentRepository.findOne({where: {id: documentId , user: {id: userId} } , relations: {teams: true}})
+    const doc = await this.documentRepository.findOne({where: {id: documentId , user: {id: userId}, status: In([DocumentStatus.COMPLETED, DocumentStatus.FAILED, DocumentStatus.UPLOADING]) }})
     if(!doc){
       throw new NotFoundException("No such document found!")
     }
-
-    await this.documentProcessingQueue.remove(doc.id).catch((error) => undefined);
-
+    await this.documentRepository.remove(doc); 
+    await this.documentProcessingQueue.remove(doc.id).catch(() => undefined);
     await firstValueFrom(
     this.httpService.delete(
       `${process.env.DOCUMENT_SERVICE_URL}/chunks/document/${documentId}`,
@@ -309,9 +403,8 @@ export class DocumentService {
     ),
   );
   if (doc.storageUrl) {
-    await fs.unlink(doc.storageUrl).catch(() => undefined);
+    await this.s3Service.deleteObject(doc.storageUrl).catch(() => undefined);
   }
-  await this.documentRepository.remove(doc);
   return { status: 'deleted', id: documentId };
   }
 
@@ -327,11 +420,7 @@ export class DocumentService {
     doc.status = DocumentStatus.PENDING;
     doc.errorMessage = '';
     await this.documentRepository.save(doc);
-    await this.documentProcessingQueue.add(
-      'document-processing',
-      { documentId: doc.id, path: doc.storageUrl },
-      { jobId: doc.id, removeOnComplete: true, attempts: 3, backoff: { type: 'exponential', delay: 5000 } },
-    );
+    await this.documentProcessingQueue.add('document-processing', { documentId: doc.id, key: doc.storageUrl, bucket: this.s3Service.bucket }, { jobId: doc.id, removeOnComplete: true, attempts: 3, backoff: { type: 'exponential', delay: 5000 } });
     return doc;
   }
 

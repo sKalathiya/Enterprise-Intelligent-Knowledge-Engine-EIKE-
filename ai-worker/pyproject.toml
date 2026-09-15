@@ -1,0 +1,23 @@
+[project]
+name = "eike-ai-worker"
+version = "0.1.0"
+description = "EIKE query API and BullMQ ingest worker"
+requires-python = ">=3.10,<3.14"
+dependencies = [
+    "fastapi>=0.115.0,<1.0.0",
+    "uvicorn[standard]>=0.32.0,<1.0.0",
+    "pydantic>=2.10.0,<3.0.0",
+    "python-dotenv>=1.0.0,<2.0.0",
+    "slowapi>=0.1.9",
+    "llama-parse>=0.5.0,<1.0.0",
+    "langchain-text-splitters>=0.3.0,<1.0.0",
+    "SQLAlchemy>=2.0.0,<3.0.0",
+    "pgvector>=0.3.0,<1.0.0",
+    "psycopg2-binary>=2.9.0,<3.0.0",
+    "google-genai>=1.0.0,<3.0.0",
+    "bullmq<=3.2.2",
+    "boto3>=1.35.0,<2.0.0",
+]
+
+[tool.uv]
+package = false

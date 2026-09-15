@@ -21,15 +21,15 @@ export class UserController {
     return this.userService.getUser(req.user.id as string);
   }
 
-  // @Delete('/')
-  // @ApiBearerAuth()
-  // @ApiOperation({ summary: 'Delete a user' })
-  // @ApiResponse({ status: 200, description: 'User deleted successfully' })
-  // @ApiResponse({ status: 404, description: 'User not found' })
-  // @ApiResponse({ status: 500, description: 'Internal server error' })
-  // async deleteUser(@Req() req: any) {
-  //   return this.userService.deleteUser(req.user.id as string);
-  // }
+  @Delete('/')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Delete a user' })
+  @ApiResponse({ status: 200, description: 'User deleted successfully' })
+  @ApiResponse({ status: 404, description: 'User not found' })
+  @ApiResponse({ status: 500, description: 'Internal server error' })
+  async deleteUser(@Req() req: any) {
+    return this.userService.deleteUser(req.user.id as string);
+  }
 
   @Put('/')
   @ApiBearerAuth()

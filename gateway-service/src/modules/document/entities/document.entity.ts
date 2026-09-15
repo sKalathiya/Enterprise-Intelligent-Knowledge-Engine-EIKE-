@@ -5,6 +5,7 @@ import { Exclude } from "class-transformer";
 import { TeamDocument } from "../../team/entities/team-document.entity.js";
 
 export enum DocumentStatus {
+    UPLOADING = "uploading",
     PENDING = "pending",
     PROCESSING = "processing",
     COMPLETED = "completed",

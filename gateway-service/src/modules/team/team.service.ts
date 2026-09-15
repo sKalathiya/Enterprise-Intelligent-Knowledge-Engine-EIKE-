@@ -1,15 +1,16 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { CreateTeamDto } from './dto/create-team.dto.js';
 import { UpdateTeamDto } from './dto/update-team.dto.js';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Repository } from 'typeorm';
+import { EntityManager, Not, Repository } from 'typeorm';
 import { PRIVATE_TEAM_NAME, Team } from './entities/team.entity.js';
 import { TeamMember } from './entities/team-member.entity.js';
 import { TeamDocument } from './entities/team-document.entity.js';
 import { AddMemberDto } from './dto/add-member.dto.js';
 import { User } from '../user/entities/user.entity.js';
 import { RemoveMemberDto } from './dto/remove-member.dto.js';
-
+import { ChangeOwnerDto } from './dto/change-owner.dto.js';
+import { Document } from '../document/entities/document.entity.js';
 @Injectable()
 export class TeamService {
   constructor(
@@ -29,35 +30,23 @@ export class TeamService {
       where: { user: { id: userId } },
       relations: { team: { members: { user: true } } },
     });
-    return memberships.map((row) => ({
-      id: row.team.id,
-      name: row.team.name,
-      ownerId: row.team.ownerId,
-      createdAt: row.team.createdAt,
-      updatedAt: row.team.updatedAt,
-      joinedAt: row.joinedAt,
-      members: (row.team.members ?? [])
-        .slice()
-        .sort((a, b) => a.joinedAt.getTime() - b.joinedAt.getTime())
-        .map((member) => ({
-          email: member.user.email,
-          firstName: member.user.firstName,
-          lastName: member.user.lastName,
-          joinedAt: member.joinedAt,
-          isOwner: member.user.id === row.team.ownerId,
-        })),
-    }));
+    return memberships.map(row => row.team)
   }
 
   async create(createTeamDto: CreateTeamDto, userId: string) {
     if (createTeamDto.name === PRIVATE_TEAM_NAME) {
       throw new BadRequestException('Private is a reserved team name');
     }
-    const team = this.teamRepository.create({name: createTeamDto.name, owner: {id: userId}});
-    await this.teamRepository.save(team);
-    const teamMember = this.teamMemberRepository.create({team: team, user: {id: userId}});
-    await this.teamMemberRepository.save(teamMember);
-    return team;
+    const savedTeam = await this.teamRepository.manager.transaction(async (manager): Promise<Team> => {
+      const teamRepo = manager.getRepository(Team);
+      const teamMemberRepo = manager.getRepository(TeamMember);
+      const team = teamRepo.create({name: createTeamDto.name, owner: {id: userId}});
+      await teamRepo.save(team);
+      const teamMember = teamMemberRepo.create({team: team, user: {id: userId}});
+      await teamMemberRepo.save(teamMember);
+      return team;
+    });
+    return savedTeam;
   }
 
 
@@ -89,55 +78,85 @@ export class TeamService {
       throw new BadRequestException('Private team cannot be deleted');
     }
 
-    await this.teamRepository.manager.transaction(async (manager) => {
-      await this.moveOrphansToPrivate(manager, team);
-      await manager.getRepository(Team).delete(id);
-    });
-
+    await this.teamDocumentRepository.manager.transaction(async (manager) => {
+      await this.removeDocumentsFromTeam(manager, id)
+      await manager.getRepository(Team).delete(id); 
+    })
     return { status: 'deleted', id };
   }
+  
+  async changeOwner(id: string, changeOwnerDto: ChangeOwnerDto, userId: string) {
+    const team = await this.teamRepository.findOne({where : {id: id , ownerId: userId}})
+    const oldOwner = await this.userRepository.findOne({where: {id: userId}})
+    if( !oldOwner ){
+      throw new NotFoundException('Old Owner not found');
+    }
+    if( !team ){
+      throw new NotFoundException('Team not found');
+    }
+    if( team.name == PRIVATE_TEAM_NAME){
+      throw new BadRequestException("Private team ownership cannot be changed!")
+    }
 
-  private async moveOrphansToPrivate(manager: EntityManager, team: Team) {
-    const teamDocumentRepo = manager.getRepository(TeamDocument);
-    const privateTeams = new Map<string, Team>();
+    const newOwner = await this.userRepository.findOne({where: {email : changeOwnerDto.email}})
+    if( !newOwner ){
+      throw new NotFoundException("New Owner not found!")
+    }
+    if( !newOwner.isActive){
+      throw new BadRequestException("New Owner is not Active!")
+    }
+    if( newOwner.id === userId ){
+      throw new BadRequestException("You cannot change ownership to yourself!")
+    }
+    if( !await this.teamMemberRepository.findOne({where: {team: {id: team.id}, user: {id: newOwner.id}}}) ){
+      throw new BadRequestException("New Owner is not a member of the team!")
+    }
 
-    for (const row of team.documents) {
-      const document = row.document;
-      const isOrphan = document.teams.length === 1;
-      if (!isOrphan) {
-        continue;
-      }
+    await this.teamDocumentRepository.manager.transaction(async (manager) => {
+      const teamRepo = manager.getRepository(Team);
+      await this.removeDocumentsFromTeam(manager, team.id , oldOwner.id)
+      team.owner = newOwner;
+      await teamRepo.save(team);
+      
+    })
 
-      const ownerId = document.user.id;
-      let privateTeam = privateTeams.get(ownerId);
-      if (!privateTeam) {
-        privateTeam = await this.getOrCreatePrivateTeam(manager, ownerId);
-        privateTeams.set(ownerId, privateTeam);
-      }
+    return {status: 'owner changed successfully', id: team.id};
+  }
 
-      const alreadyPrivate = await teamDocumentRepo.findOne({
-        where: { team: { id: privateTeam.id }, document: { id: document.id } },
-      });
-      if (!alreadyPrivate) {
-        await teamDocumentRepo.save(
-          teamDocumentRepo.create({ team: privateTeam, document }),
-        );
+  private async removeDocumentsFromTeam(manager: EntityManager, team_id: string, user_id?: string | null){
+    let documents: TeamDocument[] = []
+    const teamDocumentRepo = manager.getRepository(TeamDocument)
+    if(user_id){
+       documents = await teamDocumentRepo.find({where: {team: {id: team_id } , document: { userId: user_id}}, relations: {document: {user: true, teams: true}}})
+    }else{
+     documents = await teamDocumentRepo.find({where: {team: {id: team_id } }, relations: {document: {user: true, teams: true}}})
+    }
+    
+    if(documents.length > 0){
+      for( const row  of documents){
+        
+        const sharedTeams = row.document.teams.length
+        if(sharedTeams === 1){
+          const privateTeam = await this.getOrCreatePrivateTeam(manager, row.document.user.id);
+        await teamDocumentRepo.save(teamDocumentRepo.create({team: privateTeam, document: row.document}));
+        }
+        await teamDocumentRepo.delete(row.id);
       }
     }
   }
 
-  private async getOrCreatePrivateTeam(manager: EntityManager, userId: string) {
+  private async getOrCreatePrivateTeam(manager: EntityManager, user_id: string){
     const teamRepo = manager.getRepository(Team);
     const memberRepo = manager.getRepository(TeamMember);
     let privateTeam = await teamRepo.findOne({
-      where: { name: PRIVATE_TEAM_NAME, owner: { id: userId } },
+      where: { name: PRIVATE_TEAM_NAME, owner: { id: user_id } },
     });
     if (!privateTeam) {
       privateTeam = await teamRepo.save(
-        teamRepo.create({ name: PRIVATE_TEAM_NAME, owner: { id: userId } }),
+        teamRepo.create({ name: PRIVATE_TEAM_NAME, owner: { id: user_id } }),
       );
       await memberRepo.save(
-        memberRepo.create({ team: privateTeam, user: { id: userId } }),
+        memberRepo.create({ team: privateTeam, user: { id: user_id } }),
       );
     }
     return privateTeam;
@@ -148,9 +167,15 @@ export class TeamService {
     if(!team) {
       throw new NotFoundException('Team not found');
     }
+    if(team.name === PRIVATE_TEAM_NAME) {
+      throw new BadRequestException('Private team cannot have members');
+    }
     const member = await this.userRepository.findOne({where: {email: addMemberDto.email}});
     if(!member) {
       throw new NotFoundException('Member not found');
+    }
+    if(!member.isActive) {
+      throw new BadRequestException('Member is not active');
     }
     if(
       await this.teamMemberRepository.findOne({where: {team : {id: team.id} , user : {id : member.id}}})
@@ -178,7 +203,15 @@ export class TeamService {
     if(member.user.id === userId) {
       throw new BadRequestException('You cannot remove yourself from the team');
     }
-    await this.teamMemberRepository.delete({user:{ id: member.user.id},team:{id: team.id}});
+    if(team.name === PRIVATE_TEAM_NAME) {
+      throw new BadRequestException('Private team cannot have members removed');
+    }
+
+    await this.teamDocumentRepository.manager.transaction(async (manager) => {
+      await this.removeDocumentsFromTeam(manager, id, member.user.id)
+      await manager.getRepository(TeamMember).delete({user:{ id: member.user.id},team:{id: team.id}});
+    });
+
     return {status: 'removed', email: member.user.email};
   }
 }

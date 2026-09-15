@@ -1,12 +1,14 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Req } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Req, ClassSerializerInterceptor, UseInterceptors } from '@nestjs/common';
 import { TeamService } from './team.service.js';
 import { CreateTeamDto } from './dto/create-team.dto.js';
 import { UpdateTeamDto } from './dto/update-team.dto.js';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { AddMemberDto } from './dto/add-member.dto.js';
 import { RemoveMemberDto } from './dto/remove-member.dto.js';
+import { ChangeOwnerDto } from './dto/change-owner.dto.js';
 
 @Controller('team')
+@UseInterceptors(ClassSerializerInterceptor)
 export class TeamController {
   constructor(private readonly teamService: TeamService) {}
 
@@ -77,5 +79,17 @@ export class TeamController {
   @ApiResponse({ status: 400, description: 'Invalid member email.' })
   async removeMemberFromTeam(@Param('id') id: string, @Body() removeMemberDto: RemoveMemberDto, @Req() req: any) {
     return this.teamService.removeMember(id, removeMemberDto, req.user.id as string);
+  }
+
+  @Post(':id/change-owner')
+  @ApiBearerAuth()
+  @ApiBody({ type: ChangeOwnerDto })
+  @ApiOperation({ summary: 'Change the owner of a team' })
+  @ApiResponse({ status: 200, description: 'Owner changed successfully.' })
+  @ApiResponse({ status: 401, description: 'JWT signature pass missing or invalid.' })
+  @ApiResponse({ status: 404, description: 'Team not found.' })
+  @ApiResponse({ status: 400, description: 'Invalid owner email.' })
+  async changeOwnerOfTeam(@Param('id') id: string, @Body() changeOwnerDto: ChangeOwnerDto, @Req() req: any) {
+    return this.teamService.changeOwner(id, changeOwnerDto, req.user.id as string);
   }
 }

@@ -15,13 +15,13 @@ from slowapi.util import get_remote_address
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_500_INTERNAL_SERVER_ERROR
 import uvicorn
 import json
-from text_processor import TextProcessorService
-from pdf_parser import PdfParserService
+from core.text_Spilliter_Service import TextSplitterService
+from core.pdf_Parser_Service import PdfParserService
 from core.database import SessionLocal, get_db
 from sqlalchemy.orm import Session
-from core.embeddings import EmbeddingService
-from core.document_chunk import DocumentChunk
-from core.generativeService import GenerativeService
+from core.embedding_Service import EmbeddingService
+from core.document_Chunk_Model import DocumentChunk
+from core.generative_Service import GenerativeService
 from starlette.datastructures import MutableHeaders
 from starlette.responses import StreamingResponse
 
@@ -95,62 +95,18 @@ class PassThroughLogMiddleware:
 
 
 app.add_middleware(PassThroughLogMiddleware)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[os.getenv("AI_WORKER_ALLOWED_ORIGINS") or "*"],
-    allow_credentials=True,
-    allow_methods=["GET", "POST"],
-    allow_headers=["*", "X-Internal-Api-Key"],
-)
 
 router = APIRouter(prefix="/api/v1/ai")
 
-text_processor = TextProcessorService() 
+text_splitter = TextSplitterService() 
 pdf_parser = PdfParserService()
 embedding_service = EmbeddingService()
 generative_service = GenerativeService()
 
 
-
-class Document(BaseModel):
-    document_id: str = Field(..., description="The ID of the document to process")
-    path: str = Field(..., description="The path of the document to process")
-
 @router.get("/health", status_code=status.HTTP_200_OK)
 async def health():
     return {"status": "ok"}
-
-
-@router.post("/process", status_code=status.HTTP_200_OK)
-@limiter.limit("60/minute")
-async def ingest_document_payload(request: Request, job: Document, db: Session = Depends(get_db)):
-    """Parse a PDF already on disk, then chunk the extracted markdown."""
-    try:
-        print(f"Processing document {job.document_id} with path {job.path}")
-        content = await pdf_parser.parse_pdf(job.path)
-        chunks = text_processor.split_text(content)
-        if len(chunks) == 0:
-            return {"status": "skipped", "message": "No chunks found"}
-        
-        chunk_batches = [chunks[i:i+50] for i in range(0, len(chunks), 50)]
-
-        api_tasks = [embedding_service.embed_content(batch) for batch in chunk_batches]
-
-        vector_matrices = await asyncio.gather(*api_tasks)
-
-        
-
-        for i, vector_matrix in enumerate(vector_matrices):
-            for j, chunk in enumerate(chunk_batches[i]):
-                db.add(DocumentChunk(document_id=job.document_id, content=chunk, embedding=vector_matrix[j]))
-        db.commit()
-        
-        return {"status": "ok", "message": "Document ingested successfully", "chunks": len(chunks), "chunk_sample": chunks[0] if chunks else None, "batch_size": len(chunk_batches)}    
-    except ValueError as exc:
-        db.rollback()
-        print(f"Error parsing PDF: {exc}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
-
 
 # --- NEW: MULTI-TENANT QUERY INPUT SCHEMA CONTROLS ---
 

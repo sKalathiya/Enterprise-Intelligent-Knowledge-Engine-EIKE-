@@ -36,7 +36,6 @@ import { TeamModule } from './modules/team/team.module.js';
         database: configService.get('POSTGRES_DB'),
         entities: [User, Document, Team, TeamMember, TeamDocument],
         synchronize: true,
-        logging:['error','query'],
       }),
     }),
 
@@ -47,6 +46,7 @@ import { TeamModule } from './modules/team/team.module.js';
         connection: {
           host: configService.get('REDIS_HOST'),
           port: configService.get('REDIS_PORT'),
+          maxRetriesPerRequest: null
         },
       }),
     }),

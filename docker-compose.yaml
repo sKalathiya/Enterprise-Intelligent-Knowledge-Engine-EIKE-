@@ -1,8 +1,8 @@
 name: Enterprise-Intelligent-Knowledge-Engine
 
 networks:
-  # Private: apps talk to each other. No host port publish.
-  # Not internal:true — worker still needs outbound HTTPS (Gemini, LlamaParse).
+  # Private: apps talk to each other. Not internal:true — ingest/query still need
+  # outbound HTTPS (Gemini, LlamaParse, S3).
   eike_network:
     driver: bridge
   # Public: only the gateway is attached. Host reaches :3000 here.
@@ -17,8 +17,6 @@ services:
   postgres_db:
     image: pgvector/pgvector:pg16
     container_name: eike_postgres_db
-    ports:
-      - "${POSTGRES_PORT}:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -33,20 +31,19 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    # pgvector + HNSW needs RAM as chunks grow. 512M OOMs after a modest corpus.
     deploy:
       resources:
         limits:
           cpus: "1"
-          memory: 512M
+          memory: 2G
         reservations:
           cpus: "0.25"
-          memory: 256M
+          memory: 512M
 
   redis_cache:
     image: redis:7.0-alpine
     container_name: eike_redis_cache
-    ports:
-      - "${REDIS_PORT}:6379"
     volumes:
       - redis_data:/data
     networks:
@@ -66,70 +63,117 @@ services:
           cpus: "0.1"
           memory: 64M
 
-  # ai-worker:
-  #   build:
-  #     context: ./ai-worker
-  #     dockerfile: Dockerfile
-  #   container_name: eike_ai_worker
-  #   env_file:
-  #     - .env
-  #   environment:
-  #     POSTGRES_HOST: postgres_db
-  #     DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres_db:5432/${POSTGRES_DB}
-  #     SHARED_UPLOAD: /shared/uploads
-  #     AI_WORKER_HOST: 0.0.0.0
-  #     AI_WORKER_PORT: 8000
-  #   volumes:
-  #     - ./uploads:/shared/uploads
-  #   networks:
-  #     - eike_network
-  #   restart: unless-stopped
-  #   depends_on:
-  #     postgres_db:
-  #       condition: service_healthy
-  #   deploy:
-  #     resources:
-  #       limits:
-  #         cpus: "1.5"
-  #         memory: 1G
-  #       reservations:
-  #         cpus: "0.50"
-  #         memory: 512M
+  ai-worker:
+    build:
+      context: ./ai-worker
+      dockerfile: Dockerfile
+    image: eike-ai-worker:local
+    container_name: eike_ai_worker
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: postgres_db
+      POSTGRES_PORT: "5432"
+      REDIS_HOST: redis_cache
+      AI_WORKER_HOST: 0.0.0.0
+      AI_WORKER_PORT: 8000
+      AI_WORKER_ALLOWED_HOSTS: localhost,127.0.0.1,ai-worker,gateway-service
+    networks:
+      - eike_network
+    restart: unless-stopped
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+      redis_cache:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "-f",
+          "-H",
+          "X-Internal-Api-Key: ${API_KEY}",
+          "http://127.0.0.1:8000/api/v1/ai/health",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+    # Query + Gemini stream. SQLAlchemy pool is large; leave headroom.
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1536M
+        reservations:
+          cpus: "0.25"
+          memory: 512M
 
-  # gateway-service:
-  #   build:
-  #     context: ./gateway-service
-  #     dockerfile: Dockerfile
-  #   container_name: eike_gateway_service
-  #   env_file:
-  #     - .env
-  #   environment:
-  #     NODE_ENV: production
-  #     POSTGRES_HOST: postgres_db
-  #     REDIS_HOST: redis_cache
-  #     SHARED_UPLOAD: /shared/uploads
-  #     DOCUMENT_SERVICE_URL: http://ai-worker:8000/api/v1/ai
-  #     GATEWAY_SERVICE_PORT: 3000
-  #   ports:
-  #     - "${GATEWAY_SERVICE_PORT}:3000"
-  #   volumes:
-  #     - ./uploads:/shared/uploads
-  #   networks:
-  #     - public_network
-  #     - eike_network
-  #   restart: unless-stopped
-  #   depends_on:
-  #     postgres_db:
-  #       condition: service_healthy
-  #     redis_cache:
-  #       condition: service_healthy
-  #     ai-worker:
-  #       condition: service_started
-  #   deploy:
-  #     resources:
-  #       limits:
-  #         cpus: "1"
-  #         memory: 512M
-  #       reservations:
-  #         cpus: "0.25"
-  #         memory: 256M
+  ai-ingest-worker:
+    image: eike-ai-worker:local
+    container_name: eike_ai_ingest_worker
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: postgres_db
+      POSTGRES_PORT: "5432"
+      REDIS_HOST: redis_cache
+    command: ["python", "ingest_Document_Queue_Worker.py"]
+    networks:
+      - eike_network
+    restart: unless-stopped
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+      redis_cache:
+        condition: service_healthy
+      ai-worker:
+        condition: service_healthy
+    # One PDF at a time (concurrency 1): temp file + LlamaParse + embed batches.
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+
+  gateway-service:
+    build:
+      context: ./gateway-service
+      dockerfile: Dockerfile
+    container_name: eike_gateway_service
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      POSTGRES_HOST: postgres_db
+      REDIS_HOST: redis_cache
+      DOCUMENT_SERVICE_URL: http://ai-worker:8000/api/v1/ai
+      GATEWAY_SERVICE_PORT: 3000
+    ports:
+      - "${GATEWAY_SERVICE_PORT}:3000"
+    networks:
+      - public_network
+      - eike_network
+    restart: unless-stopped
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+      redis_cache:
+        condition: service_healthy
+      ai-worker:
+        condition: service_healthy
+      ai-ingest-worker:
+        condition: service_started
+    # Node 22 in 512M is a common OOM. Nest + TypeORM + BullMQ.
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 1G
+        reservations:
+          cpus: "0.25"
+          memory: 256M

@@ -2,7 +2,8 @@ import logging
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError, ProgrammingError, SQLAlchemyError
 from .database import engine
-from .document_chunk import Base
+from .database import Base
+from .document_Chunk_Model import DocumentChunk  # noqa: F401 — registers table on Base.metadata
 
 logger = logging.getLogger(__name__)
 
