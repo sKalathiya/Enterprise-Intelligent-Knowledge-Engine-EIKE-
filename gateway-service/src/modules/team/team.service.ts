@@ -114,14 +114,9 @@ export class TeamService {
       throw new BadRequestException("New Owner is not a member of the team!")
     }
 
-    await this.teamDocumentRepository.manager.transaction(async (manager) => {
-      const teamRepo = manager.getRepository(Team);
-      // Old owner's files leave this team (last share → their Private). New owner keeps membership.
-      await this.removeDocumentsFromTeam(manager, team.id , oldOwner.id)
-      team.owner = newOwner;
-      await teamRepo.save(team);
-      
-    })
+    // Old owner stays a member, so their files stay on this team.
+    team.owner = newOwner;
+    await this.teamRepository.save(team);
 
     return {status: 'owner changed successfully', id: team.id};
   }
