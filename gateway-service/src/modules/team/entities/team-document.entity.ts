@@ -4,7 +4,7 @@ import { Team } from "./team.entity.js";
 import { Document } from "../../document/entities/document.entity.js";
 
 @Entity('team_documents')
-@Index(['team', 'document'], { unique: true })
+@Index(['team', 'document'], { unique: true }) // a file is either shared to a team or not; no duplicate shares
 export class TeamDocument {
     @PrimaryGeneratedColumn('uuid')
     id: string;

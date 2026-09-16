@@ -1,14 +1,9 @@
 import { Module } from '@nestjs/common';
-import { createObserveModule } from '@nestjs/observe';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { envSchema } from './config/env.config.js';
-
-// import { ThrottlerModule } from '@nestjs/throttler';
 import { BullModule } from '@nestjs/bullmq';
-
-export const { ObserveModule, ObserveInstrument } = createObserveModule();
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { User } from './modules/user/entities/user.entity.js';
 import { Document } from './modules/document/entities/document.entity.js';
@@ -35,10 +30,12 @@ import { TeamModule } from './modules/team/team.module.js';
         password: configService.get('POSTGRES_PASSWORD'),
         database: configService.get('POSTGRES_DB'),
         entities: [User, Document, Team, TeamMember, TeamDocument],
-        synchronize: true,
+        // Auto-creates gateway tables. Convenient locally; switch to migrations before production schema changes.
+        synchronize: false,
       }),
     }),
 
+    // Redis connection for BullMQ. maxRetriesPerRequest: null is required for blocking queue commands.
     BullModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -46,26 +43,19 @@ import { TeamModule } from './modules/team/team.module.js';
         connection: {
           host: configService.get('REDIS_HOST'),
           port: configService.get('REDIS_PORT'),
-          maxRetriesPerRequest: null
+          maxRetriesPerRequest: null,
         },
       }),
     }),
 
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: ['.env', '../.env'],
+      // Local run uses gateway-service/.env; Compose uses the repo-root .env.
+      envFilePath:
+        process.env.NODE_ENV === 'test'
+          ? ['.env.test', '../.env.test', '.env', '../.env']
+          : ['.env', '../.env'],
       validationSchema: envSchema,
-    }),
-    // ThrottlerModule.forRoot([{
-    //   ttl: 60000, 
-    //   limit: 100,
-    // }]),
-    // Distributed tracing, auto-correlated logs, request/job metrics, error
-    // telemetry, alarms, and more — out of the box. Sign up at https://observe.nestjs.com
-    ObserveModule.forRoot({
-      appKey: 'YOUR_APP_KEY',
-      appSecret: 'YOUR_APP_SECRET',
-      serviceId: 'gateway-service',
     }),
     AuthModule,
     DocumentModule,
@@ -73,11 +63,13 @@ import { TeamModule } from './modules/team/team.module.js';
     TeamModule,
   ],
   controllers: [AppController],
-  providers: [AppService,
+  providers: [
+    AppService,
     {
+      // Every HTTP route requires a JWT unless the handler is marked @Public() (register/login).
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
-    }
+    },
   ],
 })
 export class AppModule {}

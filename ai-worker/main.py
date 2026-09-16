@@ -1,3 +1,4 @@
+# Internal query worker. The browser never calls this; Nest does, with X-Internal-Api-Key.
 import os
 import time
 import uuid
@@ -43,6 +44,7 @@ API_KEY_HEADER = "X-Internal-Api-Key"
 api_key_header = APIKeyHeader(name=API_KEY_HEADER, auto_error=False)
 
 async def get_api_key(api_key_header: str = Depends(api_key_header)):
+    # Same API_KEY as the gateway. This is not a user JWT.
     if api_key_header != os.getenv("API_KEY"):
         raise HTTPException(status_code=401, detail="Invalid API key")
     return api_key_header
@@ -53,7 +55,7 @@ app = FastAPI(
     title="AI Worker", 
     description="AI Worker is a service that processes AI requests.", 
     version="1.0.0",
-    dependencies=[Depends(get_api_key)]
+    dependencies=[Depends(get_api_key)]  # every route, including /health
 )
 
 
@@ -66,9 +68,10 @@ _allowed_hosts = [
     for host in (os.getenv("AI_WORKER_ALLOWED_HOSTS") or "localhost,127.0.0.1,ai-worker").split(",")
     if host.strip()
 ]
+# Host header allow-list. Include gateway-service when Nest calls this container by name.
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=_allowed_hosts)
 
-#learn
+# Request log + X-Process-Time. Not a security boundary.
 class PassThroughLogMiddleware:
     def __init__(self, app):
         self.app = app
@@ -118,6 +121,7 @@ class RAGQueryJob(BaseModel):
 @router.post("/query", status_code=status.HTTP_200_OK)
 @limiter.limit("60/minute")
 async def query_documents(request: Request, queryJob: RAGQueryJob):
+    # Nest already checked team membership and sent only that team's completed document_ids.
     query = queryJob.query
     try:
         embedded_query = await embedding_service.embed_query([query])
@@ -126,6 +130,7 @@ async def query_documents(request: Request, queryJob: RAGQueryJob):
         try:
             chunks = db.query(DocumentChunk)
             chunks = chunks.filter(DocumentChunk.document_id.in_(queryJob.document_ids))
+            # pgvector cosine; HNSW index is created in init_vector_db.py
             similar_vectors = chunks.\
                                 order_by(DocumentChunk.embedding.cosine_distance(embedded_query)).\
                                 limit(5).\
@@ -154,6 +159,7 @@ async def query_documents(request: Request, queryJob: RAGQueryJob):
         sources = [chunk.document_id for chunk in similar_vectors]
 
         async def event_stream():
+            # SSE events Nest forwards as-is: sources → token* → end
             yield f"data:{json.dumps({'type':'sources', 'sources': sources})}\n\n"
 
             async for text in generative_service.generate_content(user_prompt):
@@ -168,7 +174,7 @@ async def query_documents(request: Request, queryJob: RAGQueryJob):
             headers={
                 "Cache-Control": "no-cache, no-transform",
                 "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",
+                "X-Accel-Buffering": "no",  # so a reverse proxy does not hold the stream
             },
         )
 
@@ -187,6 +193,7 @@ async def query_documents(request: Request, queryJob: RAGQueryJob):
 async def delete_document_chunks(request: Request, 
                                     document_id: str = Path(..., description="The ID of the document to delete chunks for" ),
                                     db: Session = Depends(get_db)):
+    # Called by Nest on document/user delete. Drops vectors only; the documents row lives in TypeORM.
     try:
         db.query(DocumentChunk).filter(DocumentChunk.document_id == document_id).delete(synchronize_session=False)
         db.commit()

@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 def init_vector_db() -> None:
+    # Run once at container start. Nest synchronize does not create document_chunks or pgvector.
     try:
         with engine.connect() as conn:
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
@@ -41,6 +42,7 @@ def init_vector_db() -> None:
                     "ON document_chunks USING hnsw (embedding vector_cosine_ops)"
                 )
             )
+            # cosine ops must match DocumentChunk.embedding.cosine_distance in /query
             conn.commit()
         logger.info("HNSW embedding index is ready")
     except ProgrammingError as exc:

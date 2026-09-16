@@ -4,7 +4,7 @@ import { Team } from "./team.entity.js";
 import { User } from "../../user/entities/user.entity.js";
 
 @Entity('team_members')
-@Index(['team', 'user'], { unique: true })
+@Index(['team', 'user'], { unique: true }) // one membership row per user per team
 export class TeamMember {
     @PrimaryGeneratedColumn('uuid')
     id: string;

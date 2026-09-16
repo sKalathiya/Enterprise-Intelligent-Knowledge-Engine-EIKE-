@@ -64,11 +64,13 @@ export class DocumentService {
     }
 
     const basename = path.basename(fileName);
+    // Reject path traversal (../) and names that are not a plain basename.
     if(!basename || basename.includes('..') || basename !== dto.fileName) {
       throw new BadRequestException("Invalid file name!")
     }
 
     const id = randomUUID();
+    // Object key, not a URL. Browser PUTs here; ingest worker GetObject's the same key.
     const key = `users/${user_id}/documents/${id}/${basename}`;
 
     const savedDocument = await this.documentRepository.manager.transaction(async (manager) => {
@@ -88,6 +90,7 @@ export class DocumentService {
       return newDocument;
     });
 
+    // Short-lived PUT URL. Client must send the same Content-Type and byte length or S3 rejects.
     const uploadUrl = await getSignedUrl(client, new PutObjectCommand({
       Bucket: this.s3Service.bucket,
       Key: key,
@@ -121,6 +124,7 @@ export class DocumentService {
       throw new BadRequestException("Invalid document storage URL!")
     }
     try{
+      // Confirm the browser actually PUT the object before we enqueue ingest.
       const head = await client.send(new HeadObjectCommand({
         Bucket: this.s3Service.bucket,
         Key: document.storageUrl,
@@ -136,6 +140,7 @@ export class DocumentService {
       document.status = DocumentStatus.PENDING;
       await this.documentRepository.save(document);
     } catch(error) {
+      // Missing object, wrong size, or wrong type all become this message.
       throw new BadRequestException("Document not found in S3!")
     }
 
@@ -145,7 +150,7 @@ export class DocumentService {
       key: document.storageUrl,
     },
     {
-      jobId: documentId,
+      jobId: documentId, // must equal documentId; ingest worker rejects a mismatch
       removeOnComplete: true,
       attempts: 3,
       backoff: {
@@ -157,6 +162,7 @@ export class DocumentService {
   }
 
   // async uploadDocument(file: any, user_id: string, team_id: string) {
+  // Legacy disk upload. Kept commented; current path is presignDocument + completeDocument.
 
   //   if(!file) {
   //     throw new BadRequestException("File is required!")
@@ -231,6 +237,7 @@ export class DocumentService {
           .map((document) => [document.id, document]),
       ).values(),
     ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    // Deduped: a file shared to several of the user's teams appears once.
     return documents;
   }
 
@@ -258,6 +265,7 @@ export class DocumentService {
       throw new BadRequestException("Invalid team IDs!")
     }
     if(teams.some((team) => team.name === PRIVATE_TEAM_NAME)) {
+      // Private is the owner's inbox, not a share target.
       throw new BadRequestException("Cannot Share Document with Private Team!")
     }
     let message: string = "Shared Document Status:";
@@ -306,6 +314,7 @@ export class DocumentService {
         const remaining = teamDocument.document.teams.length;
         const teamDocumentRepo = manager.getRepository(TeamDocument);
         if (remaining === 1) {
+          // A file must stay on at least one team. Last share → owner's Private team.
           const privateTeam = await this.getOrCreatePrivateTeam(manager, userId);
           await teamDocumentRepo.save(teamDocumentRepo.create({team: privateTeam, document: teamDocument.document}));
         }
@@ -339,6 +348,7 @@ export class DocumentService {
       throw new BadRequestException("You are not a member of this group!")
     } 
 
+    // Worker never sees JWT. We send only completed document IDs this team is allowed to search.
     const documentIds = await this.teamDocumentRepository.find({where: {team: {id: team_id} , document: {status: DocumentStatus.COMPLETED}} , relations: {document: true}, select: {id: true, document: {id: true}}}).then(docs => docs.map(doc => doc.document.id));
 
     if(documentIds.length === 0) {
@@ -354,7 +364,7 @@ export class DocumentService {
           'Content-Type': 'application/json',
         },
         responseType: 'stream',
-        timeout: 0,
+        timeout: 0, // SSE; do not abort while tokens are still arriving
       },
     );
 
@@ -364,12 +374,12 @@ export class DocumentService {
     res.setHeader('Content-Type', typeof contentType === 'string' ? contentType : 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
+    res.setHeader('X-Accel-Buffering', 'no'); // nginx/Caddy must not buffer this stream
     res.flushHeaders();
 
     await new Promise<void>((resolve, reject) => {
       const abort = () => {
-        stream.destroy();
+        stream.destroy(); // client hung up → stop pulling from FastAPI
       };
       req.once('close', abort);
       stream.once('error', (error) => {
@@ -402,6 +412,7 @@ export class DocumentService {
       },
     ),
   );
+  // Row, queue job, worker vectors, then S3 object. Chunk/S3 deletes are best-effort if already gone.
   if (doc.storageUrl) {
     await this.s3Service.deleteObject(doc.storageUrl).catch(() => undefined);
   }
@@ -420,6 +431,7 @@ export class DocumentService {
     doc.status = DocumentStatus.PENDING;
     doc.errorMessage = '';
     await this.documentRepository.save(doc);
+    // Same jobId as complete: BullMQ will not enqueue a duplicate while one is still active.
     await this.documentProcessingQueue.add('document-processing', { documentId: doc.id, key: doc.storageUrl, bucket: this.s3Service.bucket }, { jobId: doc.id, removeOnComplete: true, attempts: 3, backoff: { type: 'exponential', delay: 5000 } });
     return doc;
   }

@@ -12,11 +12,11 @@ import { UnshareDocumentDto } from './dto/unshare-document.dto.js';
 import { PresignDocumentDto } from './dto/presign-document.js';
 
 @Controller('document')
-@UseInterceptors(ClassSerializerInterceptor)
+@UseInterceptors(ClassSerializerInterceptor) // strips @Exclude fields such as storageUrl
 export class DocumentController {
   constructor(private readonly documentService: DocumentService) {}
 
-  // 
+  // Upload is two calls: presign (get S3 PUT URL) → client uploads to S3 → complete (HeadObject + enqueue). 
 
   @Post('presign')
   @ApiBearerAuth()  
@@ -85,6 +85,7 @@ export class DocumentController {
   }
 
 
+  // POST + JWT + JSON body. EventSource cannot do that, so the client must use fetch and read the stream.
   @Post('query')
   @ApiBearerAuth()
   @ApiBody({ type: SearchQueryDto })
@@ -119,6 +120,7 @@ export class DocumentController {
 
 
 
+  // Old path: multipart upload onto a shared disk. Replaced by S3 presign + complete above.
   // @Post('upload')
   // @ApiBearerAuth()
   // @UseInterceptors(

@@ -18,7 +18,8 @@ export class JwtStrategy extends PassportStrategy(Strategy){
             secretOrKey: process.env.JWT_SECRET as string,
         });
     }
-    
+
+    // Signature/expiry already checked. Reload the user so controllers get req.user (not just the token payload).
     async validate(payload: any){
         const user = await this.userRepository.findOne({where: {id: payload.id}});
         if(!user){

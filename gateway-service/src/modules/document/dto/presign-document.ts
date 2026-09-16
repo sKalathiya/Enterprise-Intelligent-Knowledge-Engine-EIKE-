@@ -34,6 +34,6 @@ export class PresignDocumentDto {
         example: 1000,
     })
     @Min(1)
-    @Max(10 * 1024 * 1024)
+    @Max(10 * 1024 * 1024) // same 10MB cap completeDocument checks with HeadObject
     contentLength : number;
 }

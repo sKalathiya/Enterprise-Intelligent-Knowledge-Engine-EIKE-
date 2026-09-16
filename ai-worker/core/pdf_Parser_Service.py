@@ -4,6 +4,7 @@ from llama_parse import LlamaParse
 class PdfParserService:
     def __init__(self):
         api_key = os.getenv("LLAMA_PARSE_API_KEY")
+        # LlamaCloud turns the file into markdown. Works for PDF; text files still go through this parser.
         self.parser = LlamaParse(
             api_key=api_key,
             result_type="markdown",

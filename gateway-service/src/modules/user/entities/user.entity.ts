@@ -9,7 +9,7 @@ import { TeamMember } from "../../team/entities/team-member.entity.js";
 @Entity("users")
 export class User{
     @PrimaryGeneratedColumn("uuid")
-    @Exclude()
+    @Exclude() // JWT carries this; responses use email / names instead
     id: string
 
     @Column({type: "varchar", length: 255, nullable: true})
@@ -23,7 +23,7 @@ export class User{
     email: string
 
     @Column({type: "varchar", length: 255, unique: true, nullable: false})
-    @Exclude()
+    @Exclude() // never serialize the hash into API responses
     passwordHash: string
 
     @OneToMany(()=> TeamMember, (member: TeamMember) => member.user)
@@ -42,5 +42,5 @@ export class User{
     updatedAt: Date
 
     @Column({ type: 'boolean', default: true })
-    isActive: boolean;
+    isActive: boolean; // inactive users cannot log in (same generic error as a bad password)
 }

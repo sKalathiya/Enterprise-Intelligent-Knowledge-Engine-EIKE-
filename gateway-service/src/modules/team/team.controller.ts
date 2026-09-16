@@ -10,6 +10,7 @@ import { ChangeOwnerDto } from './dto/change-owner.dto.js';
 @Controller('team')
 @UseInterceptors(ClassSerializerInterceptor)
 export class TeamController {
+  // All mutations below are owner-only except leave. "Private" is rejected inside TeamService.
   constructor(private readonly teamService: TeamService) {}
 
   @Get('user')

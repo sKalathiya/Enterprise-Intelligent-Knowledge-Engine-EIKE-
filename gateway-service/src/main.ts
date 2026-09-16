@@ -1,5 +1,6 @@
+// Public HTTP edge. Browsers talk only to this process; FastAPI is reached from here on the private network.
 import { NestFactory } from '@nestjs/core';
-import { AppModule, ObserveInstrument } from './app.module.js';
+import { AppModule } from './app.module.js';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { json, urlencoded } from 'express';
@@ -7,39 +8,32 @@ import { ValidationPipe } from '@nestjs/common';
 import { TimeoutInterceptor } from './utils/interceptors/timeout.interceptor.js';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, {
-    instrument: ObserveInstrument,
-  });
+  const app = await NestFactory.create(AppModule);
 
-  // --- SECURITY LAYER 2: HELMET HEADERS ---
-  // Hides engineering headers (like X-Powered-By) and mitigates XSS/Clickjacking vulnerabilities
+  // Security headers (hides X-Powered-By, clickjacking, etc.). CSP is off in non-prod so Swagger UI can load.
   app.use(helmet({
-    contentSecurityPolicy: process.env.NODE_ENV === 'production' ? undefined : false, // Keeps local Swagger rendering cleanly
+    contentSecurityPolicy: process.env.NODE_ENV === 'production' ? undefined : false,
   }));
 
-  // --- SECURITY LAYER 3: CORS POLICY ---
-  // Controls who can access the API from different domains (frontend apps, bots, etc.)
+  // Browser origin allowed to call this API. Set GATEWAY_SERVICE_CORS_ORIGIN to the frontend URL in production.
   app.enableCors({
-    origin: process.env.GATEWAY_SERVICE_CORS_ORIGIN ?? '*', // Allows all origins in development, restrict in production
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // Allow common HTTP methods
-    allowedHeaders: ['Content-Type', 'Authorization'], // Allow common headers
+    origin: process.env.GATEWAY_SERVICE_CORS_ORIGIN ?? '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
   });
 
-  // --- SECURITY LAYER 4: INCOMING PAYLOAD CAPS ---
-  // Standardizes memory buffers to drop huge rogue JSON files (prevents memory exhaustion DoS)
-  app.use(json({ limit: '10mb' })); 
+  // Reject oversized JSON so a client cannot fill Node memory. File bytes never come through this path (S3 presign).
+  app.use(json({ limit: '10mb' }));
   app.use(urlencoded({ limit: '10mb', extended: true }));
 
-  // --- SECURITY LAYER 5: RUNTIME OBJECT SANITIZATION ---
-  // Intercepts network payloads and drops unauthorized properties before hitting controllers
+  // Drop unknown DTO fields; convert types (e.g. "5" → 5) before controllers run.
   app.useGlobalPipes(new ValidationPipe({
-    whitelist: true,          // Strips out any unmapped properties sent by malicious users
-    forbidNonWhitelisted: true, // Rejects requests entirely if illegal structural keys are found
-    transform: true,          // Explicitly converts incoming strings to designated types (e.g. string "5" to number 5)
+    whitelist: true,
+    forbidNonWhitelisted: true,
+    transform: true,
   }));
 
-   // --- SECURITY LAYER 6: API REQUEST TIMEOUT ---
-  // Cleanly flushes the system request queue when downstream networks lag
+  // 15s cap on most routes. /document/query is excluded because SSE can run longer (see TimeoutInterceptor).
   app.useGlobalInterceptors(new TimeoutInterceptor());
 
   app.setGlobalPrefix('api/v1'); 
@@ -51,6 +45,7 @@ async function bootstrap() {
     .addBearerAuth()
     .build();
   const document = SwaggerModule.createDocument(app, config);
+  // URL is /api/v1/docs even though global prefix is already api/v1.
   SwaggerModule.setup('api/v1/docs', app, document);
   
   await app.listen(process.env.GATEWAY_SERVICE_PORT ?? 3000);

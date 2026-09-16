@@ -10,6 +10,7 @@ export class JwtAuthGuard extends AuthGuard('jwt'){
         super();
     }
     canActivate(context: ExecutionContext): boolean | Promise<boolean> | Observable<boolean> {
+        // Skip JWT when the handler/class is marked @Public() (register + login only).
         const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
             context.getHandler(),
             context.getClass(),

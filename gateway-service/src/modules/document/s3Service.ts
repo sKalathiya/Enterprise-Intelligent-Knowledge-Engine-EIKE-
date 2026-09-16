@@ -16,6 +16,7 @@ export class S3Service {
         const secretAccessKey = this.configService.get('S3_SECRET_ACCESS_KEY') ?? '';
         const endpoint = this.configService.get('S3_ENDPOINT') ?? '';
 
+    // Boot without S3 so local/dev can start; uploads fail later in requireClient().
     if(this.bucket && region && accessKeyId && secretAccessKey){
             this.s3 = new S3Client({
                 region,
@@ -23,6 +24,7 @@ export class S3Service {
                     accessKeyId,
                     secretAccessKey,
                 },
+                // S3_ENDPOINT is for MinIO. Leave empty for real AWS.
                 ...(endpoint ? {endpoint , forcePathStyle: false} : {}),
             });
         }
@@ -36,6 +38,7 @@ export class S3Service {
     }
 
     async deleteObject(key: string){
+        // Only keys we issued (users/...). Never accept a client-supplied path.
         if(!this.s3 || !this.bucket || !key || !key.startsWith('users/')){
             throw new Error('S3 client not initialized');
         }

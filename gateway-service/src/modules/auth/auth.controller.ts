@@ -7,6 +7,7 @@ import { HttpCode, HttpStatus } from '@nestjs/common';
 import { LoginDto } from './dto/login.dto.js';
 import { Public } from './decorators/public.decorator.js';
 
+// JwtAuthGuard is registered globally in AppModule. Only register/login are @Public().
 @ApiTags("Authentication Gateway")
 @Controller('auth')
 export class AuthController {

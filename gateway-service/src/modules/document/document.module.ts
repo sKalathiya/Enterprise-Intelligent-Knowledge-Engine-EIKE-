@@ -16,7 +16,7 @@ import { S3Service } from './s3Service.js';
   imports: [
     TypeOrmModule.forFeature([Document,User,Team,TeamMember,TeamDocument]),
     BullModule.registerQueue({
-      name: 'document-processing-queue',
+      name: 'document-processing-queue', // Nest produces; ingest_Document_Queue_Worker.py consumes
     }),
     HttpModule,
   ],

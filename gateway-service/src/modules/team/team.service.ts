@@ -37,6 +37,7 @@ export class TeamService {
     if (createTeamDto.name === PRIVATE_TEAM_NAME) {
       throw new BadRequestException('Private is a reserved team name');
     }
+    // Caller becomes owner and first member in one transaction.
     const savedTeam = await this.teamRepository.manager.transaction(async (manager): Promise<Team> => {
       const teamRepo = manager.getRepository(Team);
       const teamMemberRepo = manager.getRepository(TeamMember);
@@ -79,6 +80,7 @@ export class TeamService {
     }
 
     await this.teamDocumentRepository.manager.transaction(async (manager) => {
+      // Move last-share files to each file owner's Private team, then drop this team.
       await this.removeDocumentsFromTeam(manager, id)
       await manager.getRepository(Team).delete(id); 
     })
@@ -114,6 +116,7 @@ export class TeamService {
 
     await this.teamDocumentRepository.manager.transaction(async (manager) => {
       const teamRepo = manager.getRepository(Team);
+      // Old owner's files leave this team (last share → their Private). New owner keeps membership.
       await this.removeDocumentsFromTeam(manager, team.id , oldOwner.id)
       team.owner = newOwner;
       await teamRepo.save(team);
@@ -123,6 +126,7 @@ export class TeamService {
     return {status: 'owner changed successfully', id: team.id};
   }
 
+  // If a file would have zero teams left, attach it to the file owner's Private team so it is not orphaned.
   private async removeDocumentsFromTeam(manager: EntityManager, team_id: string, user_id?: string | null){
     let documents: TeamDocument[] = []
     const teamDocumentRepo = manager.getRepository(TeamDocument)
@@ -208,6 +212,7 @@ export class TeamService {
     }
 
     await this.teamDocumentRepository.manager.transaction(async (manager) => {
+      // Removed member's files that would otherwise be left only on this team go to their Private team.
       await this.removeDocumentsFromTeam(manager, id, member.user.id)
       await manager.getRepository(TeamMember).delete({user:{ id: member.user.id},team:{id: team.id}});
     });
@@ -228,6 +233,7 @@ export class TeamService {
       throw new BadRequestException('Private team cannot have members removed');
     }
     if(team.ownerId === user_id) {
+      // Ownership must move first so the team is never ownerless.
       throw new BadRequestException('You cannot leave a team you own. Transfer ownership first.');
     }
     await this.teamRepository.manager.transaction(async (manager) => {

@@ -7,7 +7,7 @@ import { Put, Body } from '@nestjs/common';
 
 
 @Controller('user')
-@UseInterceptors(ClassSerializerInterceptor)
+@UseInterceptors(ClassSerializerInterceptor) // hides passwordHash and user id via @Exclude
 export class UserController {
   constructor(private readonly userService: UserService) {}
 

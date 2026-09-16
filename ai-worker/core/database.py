@@ -1,5 +1,7 @@
 
 
+# Same Postgres as Nest. Nest owns users/teams/documents; this process owns document_chunks.
+
 from dotenv import load_dotenv
 import os
 from sqlalchemy import create_engine, URL
@@ -11,6 +13,7 @@ load_dotenv()
 
 
 def _database_url() -> str:
+    # Prefer discrete POSTGRES_* (Compose sets host=postgres_db). DATABASE_URL is the host-tool fallback.
     user = os.getenv("POSTGRES_USER")
     password = os.getenv("POSTGRES_PASSWORD")
     host = os.getenv("POSTGRES_HOST")
@@ -39,7 +42,7 @@ if not DATABASE_URL:
 engine = create_engine(DATABASE_URL, 
 echo=True, 
 pool_size=20,       
-max_overflow=50,    
+max_overflow=50,    # query + ingest can open extra connections under load
 pool_timeout=30     
 )
 

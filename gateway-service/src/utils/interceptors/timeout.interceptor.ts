@@ -8,6 +8,7 @@ export class TimeoutInterceptor implements NestInterceptor {
     intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
         const request = context.switchToHttp().getRequest<{ originalUrl?: string; url?: string }>();
         const path = request.originalUrl ?? request.url ?? "";
+        // RAG answers stream for longer than 15s. A timeout here would cut the SSE mid-token.
         if (path.includes("/document/query")) {
             return next.handle();
         }

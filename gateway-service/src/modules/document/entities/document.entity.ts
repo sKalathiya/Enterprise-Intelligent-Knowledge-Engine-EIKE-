@@ -5,10 +5,10 @@ import { Exclude } from "class-transformer";
 import { TeamDocument } from "../../team/entities/team-document.entity.js";
 
 export enum DocumentStatus {
-    UPLOADING = "uploading",
-    PENDING = "pending",
-    PROCESSING = "processing",
-    COMPLETED = "completed",
+    UPLOADING = "uploading",   // row exists; client has not finished the S3 PUT yet
+    PENDING = "pending",       // S3 object confirmed; waiting in BullMQ
+    PROCESSING = "processing", // ingest worker has the job
+    COMPLETED = "completed",   // chunks written; searchable
     FAILED = "failed"
 }
 
@@ -21,7 +21,7 @@ export class Document{
     fileName: string
 
     @Column({type: "varchar", nullable: true})
-    @Exclude()
+    @Exclude() // S3 object key (not a public URL). Hidden from JSON responses.
     storageUrl: string
 
     @Column({type: "enum", enum: DocumentStatus, default: DocumentStatus.PENDING})
@@ -32,7 +32,7 @@ export class Document{
     errorMessage: string
 
     @OneToMany(() => TeamDocument, (teamDocument: TeamDocument) => teamDocument.document)
-    teams: Relation<TeamDocument[]>
+    teams: Relation<TeamDocument[]> // which teams can see this file (join table)
 
     @ManyToOne(() => User, (user: User) => user.documents, { onDelete: 'CASCADE' })
     @JoinColumn({ name: 'userId' })

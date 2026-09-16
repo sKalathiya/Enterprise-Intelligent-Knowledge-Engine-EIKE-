@@ -20,7 +20,7 @@ import { TeamMember } from '../team/entities/team-member.entity.js';
         useFactory: (configService: ConfigService) => ({
             secret: configService.get<string>("JWT_SECRET"),
             signOptions: {
-                expiresIn: '24h'
+                expiresIn: '24h', // access token only; there is no refresh-token flow
             }
         })
     })

@@ -4,7 +4,7 @@ import { User } from "../../user/entities/user.entity.js";
 import { TeamMember } from "./team-member.entity.js";
 import { TeamDocument } from "./team-document.entity.js";
 
-export const PRIVATE_TEAM_NAME = "Private";
+export const PRIVATE_TEAM_NAME = "Private"; // reserved; created on register; cannot rename/share/delete/reown
 
 @Entity("teams")
 export class Team {
@@ -16,7 +16,7 @@ export class Team {
     @Column({type: "varchar" , length: 255 , nullable: false})
     name: string
 
-    @ManyToOne(() => User, (user: User) => user.ownedTeams, { onDelete: 'RESTRICT' })
+    @ManyToOne(() => User, (user: User) => user.ownedTeams, { onDelete: 'RESTRICT' }) // cannot drop a user who still owns teams
     @JoinColumn({ name: 'ownerId' })
     @Index()
     owner: Relation<User>;

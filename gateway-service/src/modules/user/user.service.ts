@@ -37,6 +37,7 @@ export class UserService {
         if(user.ownedTeams.length > 1){
             throw new BadRequestException("User has teams, please delete or change owner of the teams first")
         }
+        // Postgres first (Private team + document rows + user). S3 / queue / vectors are cleaned after commit.
         await this.userRepository.manager.transaction(async (manager) => {
             const teamRepo = manager.getRepository(Team);
             const documentRepo = manager.getRepository(Document);
@@ -53,6 +54,7 @@ export class UserService {
         });
         
         for (const document of user.documents){
+            // Best-effort: account is already gone even if S3 or the worker is down.
             await this.documentProcessingQueue.remove(document.id).catch((error) => undefined);
             if (document.storageUrl) {
                 await this.s3Service.deleteObject(document.storageUrl).catch(() => undefined);

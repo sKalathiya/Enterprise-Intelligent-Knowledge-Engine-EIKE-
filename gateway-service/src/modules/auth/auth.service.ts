@@ -34,6 +34,7 @@ export class AuthService {
         const passwordHash = await bcrypt.hash(password, 10);
         const user = this.userRepository.create({firstName, lastName, email, passwordHash});
         await this.userRepository.save(user);
+        // Every user gets a personal "Private" team (owner + membership). Files always have a home team.
         const team = this.teamRepository.create({name: PRIVATE_TEAM_NAME, owner: user});
         await this.teamRepository.save(team);
         const teamMember = this.teamMemberRepository.create({team: team, user: user});
@@ -47,6 +48,7 @@ export class AuthService {
         const { email , password} = loginDto;
 
         const user = await this.userRepository.findOne({where: {email}});
+        // Same error for missing user, bad password, or inactive account so we do not leak which emails exist.
         if(!user || !user.isActive){
             throw new UnauthorizedException("Invalid login credentials provided!");
         }

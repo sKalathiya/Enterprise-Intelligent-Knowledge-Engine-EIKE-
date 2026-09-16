@@ -1,3 +1,4 @@
+# BullMQ consumer. Nest enqueues { documentId, bucket, key }; this process downloads from S3 and writes vectors.
 import asyncio
 import os
 import signal
@@ -17,7 +18,7 @@ import boto3
 load_dotenv("../.env")
 load_dotenv()
 
-QUEUE_NAME = "document-processing-queue"
+QUEUE_NAME = "document-processing-queue"  # must match BullModule.registerQueue in the gateway
 
 redis_host = os.getenv("REDIS_HOST") or "localhost"
 redis_port = os.getenv("REDIS_PORT") or "6379"
@@ -37,7 +38,7 @@ def s3_client():
     }
     endpoint = os.getenv("S3_ENDPOINT")
     if endpoint:
-        kwargs["endpoint_url"] = endpoint
+        kwargs["endpoint_url"] = endpoint  # MinIO; omit for AWS
     return boto3.client("s3", **kwargs)
 
 def validate_job(job) -> tuple[str, str, str]:
@@ -52,6 +53,7 @@ def validate_job(job) -> tuple[str, str, str]:
     except ValueError as exc:
         raise ValueError("job.id is not a UUID") from exc
 
+    # Nest sets jobId = document UUID. Reject anything else so we never ingest a forged payload.
     if not document_id or document_id != job.id:
         raise ValueError("documentId must match job.id")
 
@@ -89,6 +91,7 @@ async def process(job, job_token):
 
         vector_matrices = await asyncio.gather(*api_tasks)
 
+        # Retry-safe: drop previous vectors for this document, then insert the new set.
         db.query(DocumentChunk).filter(DocumentChunk.document_id == document_id).delete(synchronize_session=False)
         
         for i, vector_matrix in enumerate(vector_matrices):
@@ -119,8 +122,8 @@ async def main():
         process,
         {
             "connection": REDIS_URL,
-            "concurrency": 1,
-            'lockDuration': 300000,
+            "concurrency": 1,  # one PDF at a time (temp file + LlamaParse + embed)
+            'lockDuration': 300000,  # 5 min; LlamaParse can be slow
         },
     )
 

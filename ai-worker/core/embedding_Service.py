@@ -11,6 +11,7 @@ class EmbeddingService:
         query_key = os.getenv("GEMINI_QUERY_EMBEDDING_API_KEY") or ingest_key
         if not ingest_key or not query_key:
             raise ValueError("GEMINI_CONTENT_EMBEDDING_API_KEY or GEMINI_QUERY_EMBEDDING_API_KEY is not set")
+        # Separate clients so ingest and query can use different Gemini keys/quotas.
         self.ingest_client = genai.Client(api_key=ingest_key)
         self.query_client = genai.Client(api_key=query_key)
         self.model_name = os.getenv("GEMINI_EMBEDDING_MODEL")
@@ -25,7 +26,7 @@ class EmbeddingService:
                 model=self.model_name,
                 contents=chunks,
                 config=types.EmbedContentConfig(
-                    task_type="RETRIEVAL_DOCUMENT",
+                    task_type="RETRIEVAL_DOCUMENT",  # ingest: document chunks
                     output_dimensionality=768,
                 )
             )
@@ -43,7 +44,7 @@ class EmbeddingService:
                 model=self.model_name,
                 contents=query,
                 config=types.EmbedContentConfig(
-                        task_type="RETRIEVAL_QUERY",
+                        task_type="RETRIEVAL_QUERY",  # search: the user question
                         output_dimensionality=768,
                 )
             )
