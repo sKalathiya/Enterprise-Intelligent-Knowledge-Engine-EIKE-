@@ -3,7 +3,6 @@
 	auto_https off
 }
 :80 {
-	encode gzip
 	reverse_proxy gateway-service:3000 {
 		# Required for POST /document/query SSE. Nest already sends X-Accel-Buffering: no.
 		flush_interval -1
