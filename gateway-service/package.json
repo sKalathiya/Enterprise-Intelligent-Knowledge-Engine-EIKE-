@@ -21,10 +21,13 @@
     "test:debug": "vitest --inspect-brk --no-file-parallelism",
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
     "typeorm": "tsx ./node_modules/typeorm/cli.js -d src/database/data-source.ts",
+    "typeorm:dist": "node ./node_modules/typeorm/cli.js -d dist/database/data-source.js",
     "migration:generate": "npm run typeorm -- migration:generate",
     "migration:run": "npm run typeorm -- migration:run",
+    "migration:run:dist": "npm run typeorm:dist -- migration:run",
     "migration:revert": "npm run typeorm -- migration:revert",
-    "migration:show": "npm run typeorm -- migration:show"
+    "migration:show": "npm run typeorm -- migration:show",
+    "migration:show:dist": "npm run typeorm:dist -- migration:show"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1132.0",

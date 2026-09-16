@@ -5,15 +5,38 @@ networks:
   # outbound HTTPS (Gemini, LlamaParse, S3).
   eike_network:
     driver: bridge
-  # Public: only the gateway is attached. Host reaches :3000 here.
   public_network:
     driver: bridge
 
 volumes:
   postgres_data:
   redis_data:
+  caddy_data:
+  caddy_config:
 
 services:
+  caddy:
+    image: caddy:2.11.3-alpine
+    container_name: eike_caddy
+    restart: unless-stopped
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - public_network
+    depends_on:
+      gateway-service:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+
   postgres_db:
     image: pgvector/pgvector:pg16
     container_name: eike_postgres_db
@@ -21,8 +44,6 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-    ports:
-      - 5432:5432
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
@@ -46,8 +67,6 @@ services:
   redis_cache:
     image: redis:7.0-alpine
     container_name: eike_redis_cache
-    ports:
-      - 6379:6379
     volumes:
       - redis_data:/data
     networks:
@@ -157,12 +176,22 @@ services:
       REDIS_HOST: redis_cache
       DOCUMENT_SERVICE_URL: http://ai-worker:8000/api/v1/ai
       GATEWAY_SERVICE_PORT: 3000
-    ports:
-      - "${GATEWAY_SERVICE_PORT}:3000"
     networks:
       - public_network
       - eike_network
     restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/v1/docs').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
     depends_on:
       postgres_db:
         condition: service_healthy
