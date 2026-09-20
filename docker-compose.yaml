@@ -67,13 +67,16 @@ services:
   redis_cache:
     image: redis:7.0-alpine
     container_name: eike_redis_cache
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
     volumes:
       - redis_data:/data
+    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes
     networks:
       - eike_network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a ${REDIS_PASSWORD} ping"]
       interval: 5s
       timeout: 3s
       retries: 10
